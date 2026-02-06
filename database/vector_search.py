@@ -5,7 +5,7 @@ Apply to: Vector embeddings, semantic search, similarity search, RAG systems
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -81,15 +81,15 @@ class Document(Base):
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
         nullable=False,
         index=True,
     )
     
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
     
@@ -368,7 +368,7 @@ async def update_document_embedding(
     
     if document:
         document.embedding = new_embedding
-        document.updated_at = datetime.utcnow()
+        document.updated_at = datetime.now(timezone.utc)
         await session.commit()
         await session.refresh(document)
     

@@ -5,7 +5,7 @@ Apply to: Database models, ORM patterns, soft deletes, audit trails, relationshi
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy import (
@@ -46,15 +46,15 @@ class TimestampMixin:
     
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
         nullable=False,
         index=True,
     )
     
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
 
@@ -95,7 +95,7 @@ class SoftDeleteMixin:
     
     def soft_delete(self) -> None:
         """Mark record as deleted"""
-        self.deleted_at = datetime.utcnow()
+        self.deleted_at = datetime.now(timezone.utc)
     
     def restore(self) -> None:
         """Restore a soft deleted record"""
@@ -108,7 +108,7 @@ user_roles = Table(
     Base.metadata,
     Column("user_id", UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True),
     Column("role_id", UUID(as_uuid=True), ForeignKey("roles.id"), primary_key=True),
-    Column("assigned_at", DateTime, default=datetime.utcnow, nullable=False),
+    Column("assigned_at", DateTime, default=lambda: datetime.now(timezone.utc), nullable=False),
 )
 
 

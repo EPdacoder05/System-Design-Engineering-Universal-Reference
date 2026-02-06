@@ -78,10 +78,12 @@ class DatabaseManager:
         self._setup_pool_listeners()
         
         # Create session factory
+        # expire_on_commit=False prevents automatic expiration after commit,
+        # allowing access to model attributes without additional queries
         self._session_factory = async_sessionmaker(
             self._engine,
             class_=AsyncSession,
-            expire_on_commit=False,
+            expire_on_commit=False,  # Keep objects accessible after commit
             autocommit=False,
             autoflush=False,
         )
