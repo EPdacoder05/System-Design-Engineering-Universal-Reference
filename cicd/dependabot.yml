@@ -1,0 +1,65 @@
+version: 2
+updates:
+  # Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "[deps]"
+      prefix-development: "[deps-dev]"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "python"
+    reviewers:
+      - "octocat"  # Replace with actual reviewer
+    assignees:
+      - "octocat"  # Replace with actual assignee
+    ignore:
+      # Ignore major version updates for stable packages
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    allow:
+      - dependency-type: "all"
+
+  # GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "[deps]"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    reviewers:
+      - "octocat"  # Replace with actual reviewer
+
+  # Docker dependencies
+  - package-ecosystem: "docker"
+    directory: "/cicd"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "[deps]"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "docker"
+    reviewers:
+      - "octocat"  # Replace with actual reviewer
+    ignore:
+      # Only allow minor and patch updates for base images
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
