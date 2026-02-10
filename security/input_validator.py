@@ -4,10 +4,14 @@ Input Validation & Attack Pattern Detection
 Apply to: User input validation, API endpoints, form processing
 
 Features:
-- 23+ attack pattern detection via regex
+- 32+ attack pattern detection via regex
 - Input sanitization functions
 - Content-type validation
 - File upload validation (extension, MIME, magic bytes)
+- Supply chain attack detection
+- Side-channel attack detection
+- Business logic vulnerability detection
+- Build system security
 """
 
 import re
@@ -32,6 +36,20 @@ class AttackType(Enum):
     EMAIL_HEADER_INJECTION = "email_header_injection"
     UNICODE_ATTACK = "unicode_attack"
     NULL_BYTE_INJECTION = "null_byte_injection"
+    # Additional security patterns from NullPointVector
+    DESERIALIZATION_ATTACK = "deserialization_attack"
+    BUFFER_OVERFLOW = "buffer_overflow"
+    INTEGER_OVERFLOW = "integer_overflow"
+    RACE_CONDITION = "race_condition"
+    CSRF = "csrf"
+    OPEN_REDIRECT = "open_redirect"
+    IDOR = "idor"
+    MASS_ASSIGNMENT = "mass_assignment"
+    # Advanced patterns from security-data-fabric
+    SUPPLY_CHAIN_ATTACK = "supply_chain_attack"
+    SIDE_CHANNEL_ATTACK = "side_channel_attack"
+    BUSINESS_LOGIC_VULN = "business_logic_vuln"
+    BUILD_SYSTEM_HIJACK = "build_system_hijack"
 
 
 # ============================================================================
@@ -182,6 +200,139 @@ ATTACK_PATTERNS = {
         r"(\\x00)",  # Hex encoded null byte
         r"(\\0)",  # Octal encoded null byte
     ],
+    
+    # Deserialization Attacks (pickle, JSON, YAML)
+    AttackType.DESERIALIZATION_ATTACK: [
+        r"(__reduce__|__setstate__)",  # Python pickle exploits
+        r"(!!python/object)",  # YAML object instantiation
+        r"(\bconstructor\b.*\bprototype\b)",  # JavaScript prototype pollution
+        r"(ObjectInputStream|readObject)",  # Java deserialization
+    ],
+    
+    # Buffer Overflow Indicators
+    AttackType.BUFFER_OVERFLOW: [
+        r"([A]{100,})",  # Long sequences of same character
+        r"(%[0-9a-fA-F]{2}){100,}",  # Long URL encoded string
+        r"(\\x[0-9a-fA-F]{2}){50,}",  # Long hex encoded string
+    ],
+    
+    # Integer Overflow/Underflow
+    AttackType.INTEGER_OVERFLOW: [
+        r"(\b2147483647\b)",  # Max 32-bit int
+        r"(\b9223372036854775807\b)",  # Max 64-bit int
+        r"(\b-2147483648\b)",  # Min 32-bit int
+        r"(\b4294967295\b)",  # Max unsigned 32-bit
+    ],
+    
+    # Race Condition Indicators
+    AttackType.RACE_CONDITION: [
+        r"(TOCTOU)",  # Time of check, time of use
+        r"(/tmp/.*\.[a-z]{3})",  # Temp file race conditions
+        r"(unlink.*open|open.*unlink)",  # File operation race
+    ],
+    
+    # Cross-Site Request Forgery (CSRF)
+    AttackType.CSRF: [
+        r"(<form[^>]*action=[\"\']https?://)",  # External form submission
+        r"(<img[^>]*src=[\"\']https?://[^\"\']*\?)",  # GET request via image
+        r"(XMLHttpRequest.*withCredentials)",  # CORS with credentials
+    ],
+    
+    # Open Redirect
+    AttackType.OPEN_REDIRECT: [
+        r"(url=https?://)",  # URL parameter with full URL
+        r"(redirect=https?://)",  # Redirect parameter
+        r"(return_to=https?://)",  # Return URL parameter
+        r"(next=https?://)",  # Next page parameter
+    ],
+    
+    # Insecure Direct Object Reference (IDOR)
+    AttackType.IDOR: [
+        r"(/api/.*/\d+/)",  # Numeric IDs in URLs
+        r"([\?&]id=\d+)",  # Numeric ID parameters
+        r"([\?&]user_id=\d+)",  # User ID parameters
+        r"([\?&]account=\d+)",  # Account ID parameters
+    ],
+    
+    # Mass Assignment
+    AttackType.MASS_ASSIGNMENT: [
+        r"(is_admin=true)",  # Admin flag manipulation
+        r"(role=admin)",  # Role escalation
+        r"(permissions=)",  # Permission manipulation
+        r"(__.*__=)",  # Python internal attributes
+    ],
+    
+    # Supply Chain Attack Indicators (Package/Dependency)
+    AttackType.SUPPLY_CHAIN_ATTACK: [
+        r"(eval\(.*base64)",  # Obfuscated code execution
+        r"(exec\(.*decode)",  # Obfuscated execution
+        r"(__import__\(['\"]os['\"])",  # Dynamic OS import
+        r"(subprocess\..*shell=True)",  # Shell command execution
+        r"(requests\.get.*execute)",  # Remote code fetch and execute
+        r"(\.pypirc|\.npmrc)",  # Package manager config files
+    ],
+    
+    # Side-Channel Attack Indicators
+    AttackType.SIDE_CHANNEL_ATTACK: [
+        r"(time\.sleep\(.*password)",  # Timing attack on authentication
+        r"(benchmark.*query)",  # SQL timing benchmark
+        r"(measure.*performance.*secret)",  # Performance measurement on secrets
+        r"(cache.*secret|secret.*cache)",  # Secret in cache (timing leak)
+    ],
+    
+    # Business Logic Vulnerabilities
+    AttackType.BUSINESS_LOGIC_VULN: [
+        r"(amount=-)",  # Negative amounts
+        r"(quantity=-)",  # Negative quantities
+        r"(price=0\b)",  # Zero pricing
+        r"(discount=100)",  # Full discount
+        r"(quantity=\d{4,})",  # Unreasonably large quantities
+    ],
+    
+    # Build System Hijack Indicators
+    AttackType.BUILD_SYSTEM_HIJACK: [
+        r"(\.git/hooks/)",  # Git hooks manipulation
+        r"(setup\.py.*subprocess)",  # Malicious setup script
+        r"(requirements\.txt.*git\+http://)",  # Untrusted git dependencies
+        r"(\bcurl\b.*\|\s*\bsh\b)",  # Pipe to shell
+        r"(wget.*\|\s*bash)",  # Download and execute
+        r"(__pycache__.*\.pyc\.)",  # Suspicious bytecode
+    ],
+}
+
+
+# ============================================================================
+# Attack Pattern Severity Mapping
+# ============================================================================
+
+ATTACK_SEVERITY = {
+    AttackType.SQL_INJECTION: "CRITICAL",
+    AttackType.COMMAND_INJECTION: "CRITICAL",
+    AttackType.DESERIALIZATION_ATTACK: "CRITICAL",
+    AttackType.BUILD_SYSTEM_HIJACK: "CRITICAL",
+    AttackType.XXE_INJECTION: "HIGH",
+    AttackType.XSS_REFLECTED: "HIGH",
+    AttackType.XSS_STORED: "HIGH",
+    AttackType.SSRF: "HIGH",
+    AttackType.SUPPLY_CHAIN_ATTACK: "HIGH",
+    AttackType.BUSINESS_LOGIC_VULN: "HIGH",
+    AttackType.PATH_TRAVERSAL: "MEDIUM",
+    AttackType.LDAP_INJECTION: "MEDIUM",
+    AttackType.SIDE_CHANNEL_ATTACK: "MEDIUM",
+    AttackType.LOG_INJECTION: "MEDIUM",
+    AttackType.CSRF: "MEDIUM",
+    AttackType.OPEN_REDIRECT: "MEDIUM",
+    AttackType.RACE_CONDITION: "MEDIUM",
+    AttackType.HEADER_INJECTION: "LOW",
+    AttackType.TEMPLATE_INJECTION: "HIGH",
+    AttackType.EMAIL_HEADER_INJECTION: "MEDIUM",
+    AttackType.UNICODE_ATTACK: "LOW",
+    AttackType.NULL_BYTE_INJECTION: "MEDIUM",
+    AttackType.BUFFER_OVERFLOW: "HIGH",
+    AttackType.INTEGER_OVERFLOW: "MEDIUM",
+    AttackType.IDOR: "MEDIUM",
+    AttackType.MASS_ASSIGNMENT: "HIGH",
+    AttackType.XML_INJECTION: "MEDIUM",
 }
 
 

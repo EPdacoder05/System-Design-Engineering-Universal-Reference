@@ -1,0 +1,287 @@
+# 🔐 Plug-and-Play Security Scanning Workflow
+#
+# Copy this file to any project's .github/workflows/ directory for comprehensive security scanning
+#
+# Features:
+# - CodeQL static analysis (Python, JavaScript, TypeScript, Go, Java, C/C++, C#, Ruby)
+# - Trivy container vulnerability scanning
+# - pip-audit for Python dependency vulnerabilities
+# - Safety for known security vulnerabilities
+# - Bandit for Python security issues
+# - Gitleaks for secrets detection
+# - SBOM (Software Bill of Materials) generation
+#
+# Adapts to: Python, Node.js, Go, Java, Ruby projects
+#
+# Schedule: Weekly on Mondays at 2 AM UTC (customize as needed)
+# Manual trigger: Available via workflow_dispatch
+
+name: Security Scanning (Universal)
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'  # Weekly on Mondays at 2 AM UTC
+  workflow_dispatch:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  # ============================================================================
+  # CodeQL Analysis - Multi-language static analysis
+  # ============================================================================
+  codeql-analysis:
+    name: CodeQL Security Analysis
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['python']  # Add: javascript, typescript, go, java, csharp, ruby, cpp
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        queries: security-extended,security-and-quality
+    
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v3
+    
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{ matrix.language }}"
+        upload: true
+
+  # ============================================================================
+  # Trivy Container Scanning - Docker image vulnerabilities
+  # ============================================================================
+  trivy-scan:
+    name: Trivy Container Scanning
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Build Docker image (if Dockerfile exists)
+      run: |
+        if [ -f Dockerfile ]; then
+          docker build -t app:latest .
+        elif [ -f cicd/Dockerfile ]; then
+          docker build -f cicd/Dockerfile -t app:latest .
+        else
+          echo "No Dockerfile found, skipping container scan"
+          exit 0
+        fi
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      if: hashFiles('**/Dockerfile', 'cicd/Dockerfile') != ''
+      with:
+        image-ref: 'app:latest'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        severity: 'CRITICAL,HIGH,MEDIUM'
+        ignore-unfixed: true
+    
+    - name: Upload Trivy results to GitHub Security
+      uses: github/codeql-action/upload-sarif@v3
+      if: hashFiles('**/Dockerfile', 'cicd/Dockerfile') != ''
+      with:
+        sarif_file: 'trivy-results.sarif'
+        category: 'trivy-container-scan'
+
+  # ============================================================================
+  # Python Dependency Auditing - pip-audit, Safety, Bandit
+  # ============================================================================
+  python-security:
+    name: Python Security Scanning
+    runs-on: ubuntu-latest
+    if: hashFiles('**/requirements.txt', '**/pyproject.toml', '**/poetry.lock') != ''
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install security tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install pip-audit safety bandit[toml]
+    
+    - name: Run pip-audit (CVE scanning)
+      run: |
+        if [ -f requirements.txt ]; then
+          pip-audit -r requirements.txt --format json --output pip-audit-report.json || true
+          pip-audit -r requirements.txt --desc on
+        elif [ -f pyproject.toml ]; then
+          pip-audit --format json --output pip-audit-report.json || true
+          pip-audit --desc on
+        else
+          echo "No requirements.txt or pyproject.toml found"
+        fi
+      continue-on-error: true
+    
+    - name: Run Safety (known vulnerabilities)
+      run: |
+        if [ -f requirements.txt ]; then
+          safety check -r requirements.txt --json --output safety-report.json || true
+          safety check -r requirements.txt
+        else
+          echo "No requirements.txt found for Safety scan"
+        fi
+      continue-on-error: true
+    
+    - name: Run Bandit (security issues in code)
+      run: |
+        if [ -d "." ]; then
+          bandit -r . -f json -o bandit-report.json --severity-level medium || true
+          bandit -r . -ll
+        fi
+      continue-on-error: true
+    
+    - name: Upload security scan results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: python-security-reports
+        path: |
+          pip-audit-report.json
+          safety-report.json
+          bandit-report.json
+        retention-days: 90
+
+  # ============================================================================
+  # Gitleaks - Secrets Detection
+  # ============================================================================
+  gitleaks:
+    name: Gitleaks Secret Scanning
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for secret detection
+    
+    - name: Run Gitleaks
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  # ============================================================================
+  # SBOM Generation - Software Bill of Materials
+  # ============================================================================
+  sbom-generation:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Generate SBOM with Syft (if Python project)
+      if: hashFiles('**/requirements.txt', '**/pyproject.toml') != ''
+      uses: anchore/sbom-action@v0
+      with:
+        format: spdx-json
+        output-file: sbom-spdx.json
+        upload-artifact: true
+        upload-release-assets: false
+    
+    - name: Upload SBOM
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: sbom
+        path: sbom-spdx.json
+        retention-days: 90
+
+  # ============================================================================
+  # Node.js Dependency Auditing (if applicable)
+  # ============================================================================
+  nodejs-security:
+    name: Node.js Security Scanning
+    runs-on: ubuntu-latest
+    if: hashFiles('**/package.json', '**/package-lock.json', '**/yarn.lock') != ''
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    
+    - name: Run npm audit
+      if: hashFiles('**/package-lock.json') != ''
+      run: |
+        npm audit --json > npm-audit-report.json || true
+        npm audit
+      continue-on-error: true
+    
+    - name: Run yarn audit (if using Yarn)
+      if: hashFiles('**/yarn.lock') != ''
+      run: |
+        yarn audit --json > yarn-audit-report.json || true
+        yarn audit
+      continue-on-error: true
+    
+    - name: Upload Node.js security reports
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: nodejs-security-reports
+        path: |
+          npm-audit-report.json
+          yarn-audit-report.json
+        retention-days: 90
+
+  # ============================================================================
+  # Security Summary - Aggregate results
+  # ============================================================================
+  security-summary:
+    name: Security Scan Summary
+    runs-on: ubuntu-latest
+    needs: [codeql-analysis, trivy-scan, python-security, gitleaks, sbom-generation]
+    if: always()
+    
+    steps:
+    - name: Generate summary
+      run: |
+        echo "## 🔐 Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Scan Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Tool | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| CodeQL Analysis | ${{ needs.codeql-analysis.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Trivy Container Scan | ${{ needs.trivy-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Python Security | ${{ needs.python-security.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Gitleaks | ${{ needs.gitleaks.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| SBOM Generation | ${{ needs.sbom-generation.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+        echo "- Review findings in the **Security** tab" >> $GITHUB_STEP_SUMMARY
+        echo "- Download detailed reports from **Artifacts**" >> $GITHUB_STEP_SUMMARY
+        echo "- Address CRITICAL and HIGH severity issues immediately" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "---" >> $GITHUB_STEP_SUMMARY
+        echo "📅 Scan completed: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
