@@ -3,15 +3,18 @@ Anomaly Detection Module using Z-score and Isolation Forest.
 
 Apply to: [Fraud detection, system monitoring, performance anomaly detection,
 sensor data analysis, log analysis, network intrusion detection, time-series
-outlier detection, quality control, infrastructure monitoring]
+outlier detection, quality control, infrastructure monitoring, incident prediction]
 
 Features:
-- Z-score baseline analysis with configurable threshold
+- Z-score baseline analysis with configurable thresholds (1.5σ, 3.0σ, 4.5σ)
 - Isolation Forest for complex anomaly patterns
 - Multi-level anomaly classification (NORMAL, WARNING, CRITICAL, EXTREME)
 - Batch and streaming detection modes
+- Trajectory prediction with confidence scoring
+- Alert fatigue prevention (80%+ confidence threshold)
 - Human-readable explanations
 - Production-ready with proper error handling
+- SDF Gold layer integration bridge
 """
 
 from dataclasses import dataclass
@@ -406,6 +409,277 @@ if __name__ == "__main__":
     print(f"✓ Testing value: {test_value}")
     print(f"  Strict detector (threshold=2σ): {strict_result.level.value} - {strict_result.explanation}")
     print(f"  Lenient detector (threshold=4σ): {lenient_result.level.value} - {lenient_result.explanation}")
+
+
+# ============================================================================
+# Trajectory Prediction with Confidence Scoring
+# ============================================================================
+
+@dataclass
+class TrajectoryPrediction:
+    """Prediction of future anomaly trajectory."""
+    predicted_values: List[float]
+    predicted_anomalies: List[AnomalyLevel]
+    confidence_score: float  # 0.0 to 1.0
+    time_horizon: int  # Number of steps predicted
+    alert_recommended: bool  # True if confidence >= 80%
+    explanation: str
+
+
+class TrajectoryPredictor:
+    """
+    Predict future anomaly trajectory with confidence scoring.
+    
+    Apply to: Incident prediction, capacity planning, proactive monitoring
+    
+    Features:
+    - Linear trend extrapolation
+    - Confidence scoring based on data quality
+    - Alert fatigue prevention (80%+ confidence threshold)
+    - Integration bridge for SDF Gold layer events
+    """
+    
+    def __init__(
+        self,
+        detector: AnomalyDetector,
+        alert_confidence_threshold: float = 0.80
+    ):
+        """
+        Initialize trajectory predictor.
+        
+        Args:
+            detector: Fitted AnomalyDetector instance
+            alert_confidence_threshold: Minimum confidence to trigger alerts (default: 80%)
+        """
+        self.detector = detector
+        self.alert_confidence_threshold = alert_confidence_threshold
+        self.history: List[float] = []
+    
+    def add_observation(self, value: float) -> None:
+        """Add observation to history for trajectory analysis."""
+        self.history.append(value)
+        
+        # Keep last 100 observations for efficient computation
+        if len(self.history) > 100:
+            self.history = self.history[-100:]
+    
+    def predict_trajectory(
+        self,
+        steps: int = 5
+    ) -> TrajectoryPrediction:
+        """
+        Predict future trajectory of values and anomaly likelihood.
+        
+        Args:
+            steps: Number of future steps to predict
+            
+        Returns:
+            TrajectoryPrediction with forecasted values and confidence
+        """
+        if len(self.history) < 3:
+            return TrajectoryPrediction(
+                predicted_values=[],
+                predicted_anomalies=[],
+                confidence_score=0.0,
+                time_horizon=0,
+                alert_recommended=False,
+                explanation="Insufficient data for trajectory prediction (need at least 3 observations)"
+            )
+        
+        # Calculate linear trend using least squares
+        history_array = np.array(self.history)
+        x = np.arange(len(history_array))
+        
+        # Fit linear regression
+        coefficients = np.polyfit(x, history_array, deg=1)
+        slope, intercept = coefficients
+        
+        # Predict future values
+        future_x = np.arange(len(history_array), len(history_array) + steps)
+        predicted_values = [slope * x_val + intercept for x_val in future_x]
+        
+        # Detect anomalies in predictions
+        predicted_anomalies = []
+        for pred_value in predicted_values:
+            result = self.detector.detect(pred_value)
+            predicted_anomalies.append(result.level)
+        
+        # Calculate confidence score based on:
+        # 1. Data consistency (low variance in recent trend)
+        # 2. Number of observations
+        # 3. Strength of trend
+        
+        # Data consistency (lower is better)
+        recent_values = history_array[-10:]
+        variance_factor = 1.0 / (1.0 + np.std(recent_values) / (np.mean(recent_values) + 1e-6))
+        
+        # Number of observations (more is better, plateau at 50)
+        observation_factor = min(len(self.history) / 50.0, 1.0)
+        
+        # Trend strength (stronger trends = higher confidence)
+        trend_strength = abs(slope) / (np.std(history_array) + 1e-6)
+        trend_factor = min(trend_strength, 1.0)
+        
+        # Combined confidence score
+        confidence_score = (variance_factor * 0.4 + observation_factor * 0.3 + trend_factor * 0.3)
+        confidence_score = np.clip(confidence_score, 0.0, 1.0)
+        
+        # Determine if alert should be triggered
+        has_critical_anomalies = any(
+            level in (AnomalyLevel.CRITICAL, AnomalyLevel.EXTREME)
+            for level in predicted_anomalies
+        )
+        alert_recommended = (
+            confidence_score >= self.alert_confidence_threshold and
+            has_critical_anomalies
+        )
+        
+        # Generate explanation
+        if alert_recommended:
+            explanation = (
+                f"High-confidence ({confidence_score:.1%}) prediction of "
+                f"{sum(1 for l in predicted_anomalies if l in (AnomalyLevel.CRITICAL, AnomalyLevel.EXTREME))} "
+                f"critical anomalies in next {steps} steps. Alert recommended."
+            )
+        elif has_critical_anomalies:
+            explanation = (
+                f"Low-confidence ({confidence_score:.1%}) prediction of anomalies. "
+                f"Alert suppressed to prevent fatigue (threshold: {self.alert_confidence_threshold:.0%})"
+            )
+        else:
+            explanation = f"No critical anomalies predicted in next {steps} steps"
+        
+        return TrajectoryPrediction(
+            predicted_values=predicted_values,
+            predicted_anomalies=predicted_anomalies,
+            confidence_score=confidence_score,
+            time_horizon=steps,
+            alert_recommended=alert_recommended,
+            explanation=explanation
+        )
+
+
+# ============================================================================
+# SDF Gold Layer Integration Bridge
+# ============================================================================
+
+@dataclass
+class SDFGoldEvent:
+    """Event format for SDF Gold layer integration."""
+    timestamp: str
+    event_type: str  # "anomaly_detected", "trajectory_alert"
+    severity: str  # "NORMAL", "WARNING", "CRITICAL", "EXTREME"
+    value: float
+    zscore: float
+    confidence: float
+    metadata: Dict
+    alert_required: bool
+
+
+class SDFBridge:
+    """
+    Bridge to SDF (security-data-fabric) Gold layer for event streaming.
+    
+    Apply to: Real-time monitoring, incident prediction, security analytics
+    
+    Features:
+    - Standardized event format for SDF Gold layer
+    - Automatic alert prioritization
+    - Batch event processing
+    """
+    
+    def create_anomaly_event(
+        self,
+        result: AnomalyResult,
+        timestamp: Optional[str] = None
+    ) -> SDFGoldEvent:
+        """
+        Convert AnomalyResult to SDF Gold layer event.
+        
+        Args:
+            result: AnomalyResult from detector
+            timestamp: ISO format timestamp (defaults to current time)
+            
+        Returns:
+            SDFGoldEvent ready for SDF ingestion
+        """
+        from datetime import datetime
+        
+        if timestamp is None:
+            timestamp = datetime.utcnow().isoformat() + "Z"
+        
+        return SDFGoldEvent(
+            timestamp=timestamp,
+            event_type="anomaly_detected",
+            severity=result.level.value,
+            value=result.value,
+            zscore=result.zscore,
+            confidence=1.0,  # Anomaly detection has 100% confidence in its classification
+            metadata=result.metadata or {},
+            alert_required=result.level in (AnomalyLevel.CRITICAL, AnomalyLevel.EXTREME)
+        )
+    
+    def create_trajectory_event(
+        self,
+        prediction: TrajectoryPrediction,
+        timestamp: Optional[str] = None
+    ) -> SDFGoldEvent:
+        """
+        Convert TrajectoryPrediction to SDF Gold layer event.
+        
+        Args:
+            prediction: TrajectoryPrediction from predictor
+            timestamp: ISO format timestamp (defaults to current time)
+            
+        Returns:
+            SDFGoldEvent ready for SDF ingestion
+        """
+        from datetime import datetime
+        
+        if timestamp is None:
+            timestamp = datetime.utcnow().isoformat() + "Z"
+        
+        # Determine most severe predicted level
+        max_severity = AnomalyLevel.NORMAL
+        for level in prediction.predicted_anomalies:
+            if level == AnomalyLevel.EXTREME:
+                max_severity = AnomalyLevel.EXTREME
+                break
+            elif level == AnomalyLevel.CRITICAL and max_severity != AnomalyLevel.EXTREME:
+                max_severity = AnomalyLevel.CRITICAL
+            elif level == AnomalyLevel.WARNING and max_severity == AnomalyLevel.NORMAL:
+                max_severity = AnomalyLevel.WARNING
+        
+        return SDFGoldEvent(
+            timestamp=timestamp,
+            event_type="trajectory_alert",
+            severity=max_severity.value,
+            value=prediction.predicted_values[0] if prediction.predicted_values else 0.0,
+            zscore=0.0,  # Not applicable for trajectory
+            confidence=prediction.confidence_score,
+            metadata={
+                "predicted_values": prediction.predicted_values,
+                "time_horizon": prediction.time_horizon,
+                "explanation": prediction.explanation
+            },
+            alert_required=prediction.alert_recommended
+        )
+    
+    def batch_process(
+        self,
+        results: List[AnomalyResult]
+    ) -> List[SDFGoldEvent]:
+        """
+        Batch process anomaly results to SDF Gold events.
+        
+        Args:
+            results: List of AnomalyResults
+            
+        Returns:
+            List of SDFGoldEvents
+        """
+        return [self.create_anomaly_event(result) for result in results]
+
     
     print("\n" + "=" * 80)
     print("Example completed successfully!")
