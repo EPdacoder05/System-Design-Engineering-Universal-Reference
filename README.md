@@ -28,6 +28,7 @@ Need CI/CD? → `cp cicd/test-pipeline.yml .github/workflows/`
 - [Configuration](#-configuration)
 - [Testing](#-testing)
 - [Engineering Tradeoffs](#-engineering-tradeoffs)
+- [Performance & Operations](#-performance--operations)
 
 ---
 
@@ -54,6 +55,19 @@ Essential distributed system patterns
 
 **Apply to:** Microservices, service mesh, resilient APIs
 
+### [`patterns/advanced_architecture.py`](patterns/advanced_architecture.py)
+**Advanced patterns from security-data-fabric and Sportsbook-aggregation**
+- ✅ **Redis distributed cache** with AES-256 encryption
+- ✅ **MFA integration** (TOTP, QR codes, backup codes)
+- ✅ **Service-to-service JWT** auth with scope-based authorization
+- ✅ **Audit logging** with 7-year retention (SOC2/ISO27001)
+- ✅ **Refresh token rotation** (single-use)
+- ✅ **Autonomous engine pattern** (self-healing, scheduled tasks)
+- ✅ **Prometheus/Grafana monitoring** (Golden Signals)
+- ✅ Real-time data aggregation
+
+**Apply to:** Distributed systems, secure data platforms, real-time processing
+
 ---
 
 ## 🔐 Security
@@ -72,23 +86,57 @@ Complete authentication & authorization framework
 **Apply to:** APIs, web apps, internal tools, admin panels
 
 ### [`security/input_validator.py`](security/input_validator.py)
-**23+ attack pattern detection** regex library
-- ✅ SQL Injection (multiple variants)
-- ✅ XSS (reflected, stored, DOM-based)
+**32+ attack pattern detection** with severity mapping
+- ✅ SQL Injection (26 parameterized patterns)
+- ✅ XSS (10 patterns + bleach sanitization)
 - ✅ Path Traversal / Directory traversal
 - ✅ Command Injection (shell, OS)
-- ✅ LDAP Injection
+- ✅ LDAP Injection (RFC 4515 escaping)
 - ✅ XML/XXE Injection
 - ✅ SSRF patterns
-- ✅ Header Injection
+- ✅ Header Injection / CRLF
 - ✅ Template Injection (Jinja2, EL)
-- ✅ Log Injection / CRLF
+- ✅ Log Injection (structured JSON logging)
 - ✅ Email Header Injection
 - ✅ Unicode attacks
 - ✅ Null byte injection
-- ✅ File upload validation (extension, MIME, magic bytes)
+- ✅ Deserialization attacks
+- ✅ Buffer overflow indicators
+- ✅ Integer overflow/underflow
+- ✅ Race conditions (TOCTOU)
+- ✅ CSRF patterns
+- ✅ Open redirect
+- ✅ IDOR (Insecure Direct Object Reference)
+- ✅ Mass assignment
+- ✅ **Supply Chain Attack** (hash pinning, SCA)
+- ✅ **Side-Channel Attack** (metadata stripping)
+- ✅ **Business Logic Vulnerabilities** (property-based testing)
+- ✅ **Build System Hijack** (ephemeral runners, signed commits, SLSA)
 
-**Apply to:** User input validation, API endpoints, form processing
+**Apply to:** User input validation, API endpoints, form processing, zero-trust security
+
+### [`security/zero_day_shield.py`](security/zero_day_shield.py)
+Defense-in-depth zero-day protection utilities
+- ✅ **SecureDeserializer** - Whitelist-based deserialization
+- ✅ **SecureHasher** - Timing attack protection (HMAC)
+- ✅ **SecureTokenGenerator** - Cryptographic tokens
+- ✅ **SecureValidator** - ReDoS prevention (regex timeout)
+- ✅ **MetadataSanitizer** - Side-channel leak prevention
+- ✅ **DefenseInDepthValidator** - Multi-layer validation
+
+**Apply to:** Zero-trust architectures, defense-in-depth security, production systems
+
+### [`security/circuit_breaker.py`](security/circuit_breaker.py)
+Circuit breaker pattern for resilience
+- ✅ **3 states** - Closed, Open, Half-Open
+- ✅ **Automatic failure detection** and recovery
+- ✅ **Configurable thresholds** - Failure rate, timeout
+- ✅ **Thread-safe** implementation
+- ✅ **Metrics tracking** - Success rate, failure rate
+- ✅ **Circuit Breaker Registry** - Multi-service management
+- ✅ **Decorator pattern** - Easy integration
+
+**Apply to:** Microservices, external APIs, preventing cascading failures
 
 ### [`security/encryption.py`](security/encryption.py)
 Cryptographic toolkit
@@ -220,6 +268,21 @@ GitHub Actions workflows and infrastructure-as-code templates.
 - ✅ SARIF upload to GitHub Security tab
 - ✅ Manual trigger option
 
+### [`.github/workflows/security-scan-universal.yml`](.github/workflows/security-scan-universal.yml)
+**🔐 Plug-and-play universal security scanning** (NEW)
+- ✅ **CodeQL** - Multi-language static analysis
+- ✅ **Trivy** - Container vulnerability scanning
+- ✅ **pip-audit** - Python CVE scanning
+- ✅ **Safety** - Known vulnerabilities
+- ✅ **Bandit** - Python security issues
+- ✅ **Gitleaks** - Secrets detection
+- ✅ **SBOM generation** - Software Bill of Materials
+- ✅ **Node.js audit** - npm/yarn vulnerabilities (if applicable)
+- ✅ **Works with**: Python, Node.js, Go, Java, Ruby projects
+- ✅ **Copy-paste ready** - No configuration needed
+
+**Apply to:** Any project requiring comprehensive security scanning
+
 ### [`cicd/dependabot.yml`](cicd/dependabot.yml)
 **Automated dependency updates**
 - ✅ pip ecosystem updates (weekly)
@@ -254,13 +317,18 @@ GitHub Actions workflows and infrastructure-as-code templates.
 Anomaly detection and time-series forecasting for capacity planning.
 
 ### [`ml/anomaly_detector.py`](ml/anomaly_detector.py)
-**Z-score + Isolation Forest** anomaly detection
+**Z-score + Isolation Forest** anomaly detection with incident prediction
 - ✅ Z-score baseline analysis
 - ✅ Isolation Forest (scikit-learn)
-- ✅ Configurable thresholds (warning, critical, extreme)
-- ✅ Anomaly scoring with classification
+- ✅ **Configurable thresholds** (1.5σ, 3.0σ, 4.5σ)
+- ✅ **Trajectory prediction** with confidence scoring
+- ✅ **Alert fatigue prevention** (80%+ confidence threshold)
+- ✅ Anomaly scoring with 4-level classification
 - ✅ Batch and streaming detection modes
+- ✅ **SDF Gold layer integration bridge**
 - ✅ Human-readable explanations
+
+**Apply to:** Fraud detection, incident prediction, system monitoring, outlier detection
 
 **Apply to:** Fraud detection, system monitoring, outlier detection
 
@@ -343,6 +411,53 @@ Each tradeoff includes: Description, When to choose A, When to choose B, Real-wo
 
 ---
 
+## 📊 Performance & Operations
+
+### [`PERFORMANCE_BENCHMARKS.md`](PERFORMANCE_BENCHMARKS.md)
+**Consolidated performance metrics across all projects**
+- **security-data-fabric**: Cache latency (<1ms), vector search (<100ms), ML forecast (<500ms)
+- **incident-predictor-ml**: Prediction cycle (<2s), anomaly detection (<200ms)
+- **NullPointVector**: Input validation (<10ms), circuit breaker (<1ms)
+- **Sportsbook-aggregation**: Scraper cycle (<30s), real-time aggregation (<200ms)
+- **Load testing results**: 1,247 req/s, P95 latency 18ms
+- **Cost savings**: $2,650/month from caching (88% reduction)
+- **SLA compliance**: 99.94% uptime, P95 <100ms
+
+### [`COST_ANALYSIS.md`](COST_ANALYSIS.md)
+**FinOps template for cost optimization**
+- **Baseline cost calculation**: Infrastructure, external APIs, hidden costs
+- **Optimization phases**: Quick wins, architectural changes, advanced optimization
+- **ROI methodology**: Payback period, decision matrix
+- **Cost breakdown**: By service, team, category
+- **Budget planning**: Quarterly projections, annual forecasts
+- **Example savings**: $499/month (28% reduction)
+- **Unit economics**: Cost per request, per user, per prediction
+
+### [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md)
+**Universal production deployment checklist**
+- **Code & Dependencies**: Version control, dependency pinning, code quality
+- **Security**: 32 attack patterns mitigated, secrets management, compliance
+- **Testing**: 95%+ coverage, property-based testing, chaos engineering
+- **CI/CD**: Blue-green deployment, automatic rollback, zero-downtime
+- **Observability**: Golden Signals, error budget tracking, runbooks
+- **Database**: Backups, PITR, migration strategy
+- **Performance**: Load testing, caching, auto-scaling
+- **Documentation**: Architecture diagrams, runbooks, API docs
+- **Cost Management**: Right-sizing, reserved instances, budget alerts
+- **Team Readiness**: On-call rotation, incident response, knowledge transfer
+
+### [`INTEGRATION_MAP.md`](INTEGRATION_MAP.md)
+**Cross-project integration architecture**
+- **Visual ecosystem map**: Data flow between all projects
+- **Integration patterns**: REST API, Kafka, JWT auth
+- **Authentication chain**: Service-to-service JWT with scopes
+- **Monitoring integration**: Prometheus/Grafana, alert routing
+- **Disaster recovery**: RTO 1 hour, RPO 15 minutes
+- **Real-world examples**: End-to-end latency 11.5s
+- **Best practices**: Circuit breakers, retry logic, input validation
+
+---
+
 ## 🎯 How to Use This Repository
 
 ### Copy-Paste Workflow
@@ -386,9 +501,12 @@ pip install fastapi sqlalchemy redis scikit-learn
 ## 🔒 Security
 
 - All secrets managed via environment variables
-- 23+ attack pattern detection included
-- Security scanning workflows included
+- **32+ attack pattern detection** included (SQL injection, XSS, supply chain, build system hijack, etc.)
+- Zero-day shield utilities (secure deserialization, timing attack protection)
+- Circuit breaker for resilience
+- Universal security scanning workflow (CodeQL, Trivy, Gitleaks, SBOM)
 - Regular dependency updates via Dependabot
+- Production readiness checklist with SOC2/ISO27001 controls
 
 ## 📄 License
 
