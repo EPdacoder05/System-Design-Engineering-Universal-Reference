@@ -286,7 +286,7 @@ def main():
     result = security.validate_llm_prompt(user_prompt, system_prompt)
     print(f"   Prompt allowed: {result['allowed']}")
     if result['allowed']:
-        print(f"   Prompt is safe ✅")
+        print(f"   Prompt is safe [OK]")
     print()
     
     # Example 2: Block injection attempt
@@ -309,11 +309,11 @@ def main():
     
     for package in packages_to_test:
         result = security.validate_dependency(package)
-        status = "✅" if result['allowed'] else "❌"
+        status = "[OK]" if result['allowed'] else "[FAIL]"
         print(f"   {status} {package}: {result.get('reason', 'Valid')}")
         if result.get('warnings'):
             for warning in result['warnings']:
-                print(f"      ⚠️  {warning}")
+                print(f"      [WARNING] {warning}")
     print()
     
     # Example 4: Check agent permissions
@@ -327,7 +327,7 @@ def main():
     
     for agent_id, action, resource in test_cases:
         result = security.check_agent_permission(agent_id, action, resource)
-        status = "✅" if result['allowed'] else "❌"
+        status = "[OK]" if result['allowed'] else "[DENIED]"
         print(f"   {status} {agent_id}: {action} on {resource}")
     print()
     

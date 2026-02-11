@@ -12,7 +12,6 @@ Features:
 """
 
 import re
-import signal
 import threading
 import subprocess
 import hashlib
@@ -21,6 +20,7 @@ from typing import Optional, List, Dict, Set, Any, Callable
 from dataclasses import dataclass
 from enum import Enum
 import json
+from datetime import datetime, timezone
 
 
 # ============================================================================
@@ -388,7 +388,6 @@ class AgentIdentity:
     
     def __post_init__(self):
         if self.created_at is None:
-            from datetime import datetime, timezone
             self.created_at = datetime.now(timezone.utc).isoformat()
 
 
@@ -571,8 +570,6 @@ class AgentAccessControl:
             resource: Resource acted upon
             result: Result of the action
         """
-        from datetime import datetime, timezone
-        
         self.action_log.append({
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "agent_id": agent_id,
