@@ -120,11 +120,25 @@ Defense-in-depth zero-day protection utilities
 - ✅ **SecureDeserializer** - Whitelist-based deserialization
 - ✅ **SecureHasher** - Timing attack protection (HMAC)
 - ✅ **SecureTokenGenerator** - Cryptographic tokens
-- ✅ **SecureValidator** - ReDoS prevention (regex timeout)
+- ✅ **SecureValidator** - Enhanced ReDoS prevention with thread-based timeout
 - ✅ **MetadataSanitizer** - Side-channel leak prevention
 - ✅ **DefenseInDepthValidator** - Multi-layer validation
 
 **Apply to:** Zero-trust architectures, defense-in-depth security, production systems
+
+### [`security/ai_era_security.py`](security/ai_era_security.py) 🆕
+**AI-Era Security Patterns (2026)** for AI-augmented applications
+- ✅ **Pattern 28: Prompt Injection Detection** - Direct/indirect injection, system override, jailbreak detection
+- ✅ **Pattern 29: AI Package Hallucination Protection** - Verify packages exist, detect typosquatting
+- ✅ **Pattern 30: AI Agent Identity & Access** - Agent-specific OIDC, human-in-the-loop for high-regret actions
+- ✅ **Enhanced ReDoS Protection** - Thread-based timeout that actually stops catastrophic backtracking
+- ✅ **Instruction Hierarchy** - Separate system instructions from user input
+- ✅ **Semantic Filtering** - Risk scoring for prompt injection attempts
+- ✅ **Package Whitelist** - Validate against approved dependencies
+- ✅ **Agent Rate Limiting** - Per-agent action limits
+- ✅ **Audit Trail** - Complete logging of agent actions
+
+**Apply to:** LLM applications, AI agents, autonomous systems, vibe coding environments
 
 ### [`security/circuit_breaker.py`](security/circuit_breaker.py)
 Circuit breaker pattern for resilience

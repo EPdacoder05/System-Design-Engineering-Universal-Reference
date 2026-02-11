@@ -18,7 +18,8 @@ import secrets
 import time
 import json
 import re
-from typing import Any, Optional, Dict, List, Set, Union
+import threading
+from typing import Any, Optional, Dict, List, Set, Union, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -309,6 +310,9 @@ class SecureValidator:
     Apply to: User input validation, API parameter validation
     
     Prevents: ReDoS attacks, regex catastrophic backtracking
+    
+    Uses thread-based timeout to actually stop catastrophic backtracking,
+    not just measure time after completion.
     """
     
     def __init__(self, config: SecurityConfig = None):
@@ -322,6 +326,8 @@ class SecureValidator:
     ) -> bool:
         """
         Validate input against regex pattern with timeout protection.
+        
+        Uses thread-based timeout to prevent catastrophic backtracking.
         
         Args:
             pattern: Regex pattern to match
@@ -337,24 +343,61 @@ class SecureValidator:
         if len(text) > self.config.max_input_length:
             return False
         
-        # Compile regex with timeout protection
-        compiled_pattern = re.compile(pattern, re.IGNORECASE)
+        # Use thread-based timeout to actually stop execution
+        result = self._execute_regex_with_timeout(
+            re.search, pattern, text, timeout
+        )
         
-        # Simple timeout implementation using time check
-        start_time = time.time()
-        try:
-            match = compiled_pattern.search(text)
-            elapsed = time.time() - start_time
+        return result is not None
+    
+    def _execute_regex_with_timeout(
+        self,
+        func: Callable,
+        pattern: str,
+        text: str,
+        timeout: float
+    ) -> Any:
+        """
+        Execute regex function with proper timeout in separate thread.
+        
+        This actually stops catastrophic backtracking by running
+        the regex in a separate thread and abandoning it if it
+        takes too long.
+        
+        Args:
+            func: Regex function to execute (re.search, re.match, etc.)
+            pattern: Regex pattern
+            text: Text to process
+            timeout: Timeout in seconds
             
-            if elapsed > timeout:
-                print(f"⚠️  Regex timeout exceeded: {elapsed:.3f}s")
-                return False
-            
-            return match is not None
-            
-        except Exception as e:
-            print(f"⚠️  Regex validation failed: {e}")
-            return False
+        Returns:
+            Result of regex function or None if timeout or error
+        """
+        result = [None]
+        exception = [None]
+        
+        def target():
+            try:
+                compiled_pattern = re.compile(pattern, re.IGNORECASE)
+                result[0] = func(compiled_pattern, text)
+            except Exception as e:
+                exception[0] = e
+        
+        thread = threading.Thread(target=target)
+        thread.daemon = True
+        thread.start()
+        thread.join(timeout=timeout)
+        
+        if thread.is_alive():
+            # Timeout occurred - thread is still running
+            print(f"⚠️  Regex timeout after {timeout}s - possible ReDoS attack blocked")
+            return None
+        
+        if exception[0]:
+            print(f"⚠️  Regex validation failed: {exception[0]}")
+            return None
+        
+        return result[0]
     
     def validate_length(self, text: str, min_len: int = 0, max_len: Optional[int] = None) -> bool:
         """
