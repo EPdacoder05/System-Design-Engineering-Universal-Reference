@@ -38,12 +38,14 @@ class PromptInjectionType(Enum):
 
 PROMPT_INJECTION_PATTERNS = {
     PromptInjectionType.DIRECT_INJECTION: [
-        r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions?",
+        r"ignore\s+(all\s+)?(previous|prior|above|earlier)?\s*instructions?",
         r"disregard\s+(all\s+)?(previous|prior)\s+(instructions?|prompts?)",
         r"forget\s+(all\s+)?(previous|prior)\s+instructions?",
         r"new\s+instructions?:\s*",
         r"system\s+prompt:\s*",
         r"you\s+are\s+now\s+",
+        r"instead\s+of\s+.+\s+do\s+",
+        r"override\s+(all\s+)?instructions?",
     ],
     
     PromptInjectionType.SYSTEM_OVERRIDE: [
