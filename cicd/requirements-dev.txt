@@ -1,0 +1,27 @@
+# ============================================================================
+# Python Development Dependencies Template
+# ============================================================================
+# Copy this to your project root as requirements-dev.txt
+# Install with: pip install -r requirements-dev.txt
+#
+# These are development-only tools. Your project's runtime dependencies
+# should go in requirements.txt or pyproject.toml [project.dependencies]
+# ============================================================================
+
+# --- Linting & Formatting ---
+ruff>=0.9.0                    # Fast Python linter + formatter (replaces flake8, isort, black)
+
+# --- Type Checking ---
+mypy>=1.14.0                   # Static type checker
+
+# --- Testing ---
+pytest>=8.0.0                  # Test framework
+pytest-cov>=6.0.0              # Coverage plugin for pytest
+pytest-xdist>=3.5.0            # Parallel test execution (optional, for large test suites)
+
+# --- Security ---
+bandit[toml]>=1.8.0            # Python security linter (also runs in CI via security-python.yml)
+safety>=3.0.0                  # Known vulnerability scanner for installed packages
+
+# --- Pre-commit (optional) ---
+# pre-commit>=4.0.0            # Git pre-commit hook framework
