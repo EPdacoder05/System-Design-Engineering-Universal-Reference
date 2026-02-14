@@ -370,7 +370,7 @@ jobs:
           import json
           import urllib.request
           import urllib.parse
-          from datetime import datetime, timedelta
+          from datetime import datetime, timedelta, timezone
           
           # Read requirements.txt to get package names
           packages = []
@@ -396,7 +396,7 @@ jobs:
               exit(0)
           
           # Check for advisories in the last 7 days
-          seven_days_ago = (datetime.utcnow() - timedelta(days=7)).strftime('%Y-%m-%d')
+          seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%d')
           
           all_advisories = []
           token = os.environ.get('GITHUB_TOKEN', '')
@@ -563,7 +563,7 @@ jobs:
       
       - name: Create or update GitHub issue
         if: |
-          (needs.pip-audit-scan.outputs.critical_count > 0 || needs.pip-audit-scan.outputs.high_count > 0 || needs.advisory-check.outputs.has_new_advisories == 'true') &&
+          (needs.pip-audit-scan.outputs.critical_count != '0' || needs.pip-audit-scan.outputs.high_count != '0' || needs.advisory-check.outputs.has_new_advisories == 'true') &&
           (github.event.inputs.create_issue == 'true' || github.event.inputs.create_issue == '')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

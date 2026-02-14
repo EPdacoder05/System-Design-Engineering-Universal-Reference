@@ -191,6 +191,7 @@ jobs:
           import json
           import subprocess
           import os
+          from datetime import datetime, timezone
           
           repo_name = "${{ matrix.repo }}"
           
@@ -289,8 +290,7 @@ jobs:
               else:
                   # Create new issue
                   print("Creating new issue")
-                  from datetime import datetime
-                  date = datetime.utcnow().strftime('%Y-%m-%d')
+                  date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
                   
                   subprocess.run([
                       'gh', 'issue', 'create',
