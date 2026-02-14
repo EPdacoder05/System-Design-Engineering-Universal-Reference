@@ -1,0 +1,401 @@
+# ============================================================================
+# 🛡️ Zero-Day Monitor — Multi-Repo Portfolio Scanner
+# ============================================================================
+# Deploy this to ONE central repo to scan ALL your repos from a single place.
+#
+# Configure the REPOS matrix below with your repositories.
+# Requires a PAT with repo scope stored as PORTFOLIO_GITHUB_TOKEN secret.
+#
+# Results: Unified dashboard showing security posture across all repos.
+#
+# SETUP INSTRUCTIONS:
+# 1. Create a Personal Access Token (PAT) with 'repo' scope
+# 2. Add it as a repository secret named PORTFOLIO_GITHUB_TOKEN
+# 3. Update the matrix.repo list below with your repositories
+# 4. Copy this file to .github/workflows/ in your central monitoring repo
+#
+# Adapted from: https://github.com/EPdacoder05/System-Design-Engineering-Universal-Reference/tree/main/cicd
+# ============================================================================
+
+name: Zero-Day Monitor (Multi-Repo Portfolio)
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'  # Weekly on Mondays at 3 AM UTC
+  workflow_dispatch:
+    inputs:
+      create_issues:
+        description: 'Auto-create issues in affected repos'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  # ============================================================================
+  # Portfolio-Wide Scanning - Runs for each repo in the matrix
+  # ============================================================================
+  scan-repos:
+    name: Scan ${{ matrix.repo }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        repo:
+          - System-Design-Engineering-Universal-Reference
+          - TF2S3-migration
+          # Add new repos here as you create them:
+          # - my-next-project
+          # - another-project
+    
+    outputs:
+      scan_results: ${{ steps.aggregate.outputs.results }}
+    
+    steps:
+      - name: Clone repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.PORTFOLIO_GITHUB_TOKEN }}
+        run: |
+          # Clone the target repository
+          git clone https://${{ secrets.PORTFOLIO_GITHUB_TOKEN }}@github.com/EPdacoder05/${{ matrix.repo }}.git repo
+          cd repo
+          echo "Repository cloned: ${{ matrix.repo }}"
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install scanning tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit safety
+          
+          # Download osv-scanner
+          curl -sSfL https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64 -o osv-scanner
+          chmod +x osv-scanner
+      
+      - name: Install repository dependencies
+        run: |
+          cd repo
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt 2>/dev/null || true
+          fi
+      
+      - name: Run pip-audit
+        run: |
+          cd repo
+          pip-audit --format json --output ../pip-audit-${{ matrix.repo }}.json --desc on 2>&1 || true
+          pip-audit --desc on || true
+        continue-on-error: true
+      
+      - name: Run osv-scanner
+        run: |
+          ./osv-scanner --format json --output osv-${{ matrix.repo }}.json -r repo 2>&1 || true
+          ./osv-scanner -r repo || true
+        continue-on-error: true
+      
+      - name: Run safety
+        run: |
+          cd repo
+          safety check --json --output ../safety-${{ matrix.repo }}.json 2>&1 || true
+          safety check 2>&1 || true
+        continue-on-error: true
+      
+      - name: Parse and aggregate results
+        id: aggregate
+        run: |
+          python3 << 'EOF'
+          import json
+          import os
+          
+          repo_name = "${{ matrix.repo }}"
+          results = {
+              "repo": repo_name,
+              "pip_audit": {"critical": 0, "high": 0, "medium": 0, "low": 0, "total": 0},
+              "osv": {"total": 0},
+              "safety": {"total": 0},
+              "has_critical_high": False
+          }
+          
+          # Parse pip-audit results
+          try:
+              with open(f'pip-audit-{repo_name}.json', 'r') as f:
+                  data = json.load(f)
+                  for dep in data.get('dependencies', []):
+                      for vuln in dep.get('vulns', []):
+                          severity = vuln.get('severity', 'HIGH').upper()
+                          results["pip_audit"]["total"] += 1
+                          if 'CRITICAL' in severity:
+                              results["pip_audit"]["critical"] += 1
+                              results["has_critical_high"] = True
+                          elif 'HIGH' in severity:
+                              results["pip_audit"]["high"] += 1
+                              results["has_critical_high"] = True
+                          elif 'MEDIUM' in severity or 'MODERATE' in severity:
+                              results["pip_audit"]["medium"] += 1
+                          else:
+                              results["pip_audit"]["low"] += 1
+          except Exception as e:
+              print(f"Error parsing pip-audit: {e}")
+          
+          # Parse osv-scanner results
+          try:
+              with open(f'osv-{repo_name}.json', 'r') as f:
+                  data = json.load(f)
+                  for result in data.get('results', []):
+                      for package in result.get('packages', []):
+                          vulns = package.get('vulnerabilities', [])
+                          results["osv"]["total"] += len(vulns)
+          except Exception as e:
+              print(f"Error parsing osv-scanner: {e}")
+          
+          # Parse safety results
+          try:
+              with open(f'safety-{repo_name}.json', 'r') as f:
+                  data = json.load(f)
+                  if isinstance(data, list):
+                      results["safety"]["total"] = len(data)
+                  elif isinstance(data, dict):
+                      results["safety"]["total"] = len(data.get('vulnerabilities', []))
+          except Exception as e:
+              print(f"Error parsing safety: {e}")
+          
+          # Save results to file
+          with open(f'results-{repo_name}.json', 'w') as f:
+              json.dump(results, f, indent=2)
+          
+          print(json.dumps(results, indent=2))
+          EOF
+      
+      - name: Upload scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-results-${{ matrix.repo }}
+          path: |
+            pip-audit-${{ matrix.repo }}.json
+            osv-${{ matrix.repo }}.json
+            safety-${{ matrix.repo }}.json
+            results-${{ matrix.repo }}.json
+          retention-days: 90
+      
+      - name: Create issue in affected repo if vulnerabilities found
+        if: github.event.inputs.create_issues == 'true' || github.event.inputs.create_issues == ''
+        env:
+          GH_TOKEN: ${{ secrets.PORTFOLIO_GITHUB_TOKEN }}
+        run: |
+          python3 << 'EOF'
+          import json
+          import subprocess
+          import os
+          
+          repo_name = "${{ matrix.repo }}"
+          
+          # Read aggregated results
+          try:
+              with open(f'results-{repo_name}.json', 'r') as f:
+                  results = json.load(f)
+              
+              if not results.get('has_critical_high', False):
+                  print("No CRITICAL or HIGH vulnerabilities, skipping issue creation")
+                  exit(0)
+              
+              # Check for existing open issues
+              check_cmd = [
+                  'gh', 'issue', 'list',
+                  '--repo', f'EPdacoder05/{repo_name}',
+                  '--label', 'zero-day',
+                  '--state', 'open',
+                  '--json', 'number',
+                  '--jq', '. | length'
+              ]
+              
+              result = subprocess.run(check_cmd, capture_output=True, text=True)
+              existing_count = int(result.stdout.strip() or 0)
+              
+              pip_audit = results.get('pip_audit', {})
+              critical = pip_audit.get('critical', 0)
+              high = pip_audit.get('high', 0)
+              total = critical + high
+              
+              # Write issue body to file
+              issue_title = "Zero-Day Vulnerability Alert (Portfolio Scan)"
+              issue_lines = [
+                  "## 🛡️ Zero-Day Vulnerability Alert (Portfolio Scan)",
+                  "",
+                  "Automated portfolio-wide scan detected vulnerabilities in this repository.",
+                  "",
+                  "### Summary",
+                  "",
+                  f"- 🔴 CRITICAL: {pip_audit.get('critical', 0)}",
+                  f"- 🟠 HIGH: {pip_audit.get('high', 0)}",
+                  f"- 🟡 MEDIUM: {pip_audit.get('medium', 0)}",
+                  f"- 🔵 LOW: {pip_audit.get('low', 0)}",
+                  "",
+                  "### Scanner Results",
+                  "",
+                  "| Scanner | Findings |",
+                  "|---------|----------|",
+                  f"| pip-audit | {pip_audit.get('total', 0)} vulnerabilities |",
+                  f"| osv-scanner | {results.get('osv', {}).get('total', 0)} vulnerabilities |",
+                  f"| safety | {results.get('safety', {}).get('total', 0)} vulnerabilities |",
+                  "",
+                  "### Immediate Actions Required",
+                  "",
+                  "1. Review the central workflow run for detailed reports",
+                  "2. Update dependencies: Run pip-audit --fix to automatically update vulnerable packages",
+                  "3. Manual updates: For packages without automated fixes, update manually in requirements.txt",
+                  "4. Verify fixes: Request a re-scan after updates",
+                  "",
+                  "### Resources",
+                  "",
+                  "- [pip-audit documentation](https://pypi.org/project/pip-audit/)",
+                  "- [GitHub Advisory Database](https://github.com/advisories)",
+                  "- [OSV Database](https://osv.dev/)",
+                  "",
+                  "---",
+                  "",
+                  "This issue was automatically created by the Portfolio-Wide Zero-Day Monitor.",
+                  "Next scheduled scan: Next Monday at 3 AM UTC"
+              ]
+              with open('issue_body.md', 'w') as issue_file:
+                  issue_file.write('\n'.join(issue_lines))
+
+              
+              if existing_count > 0:
+                  # Update existing issue
+                  get_issue_cmd = [
+                      'gh', 'issue', 'list',
+                      '--repo', f'EPdacoder05/{repo_name}',
+                      '--label', 'zero-day',
+                      '--state', 'open',
+                      '--json', 'number',
+                      '--jq', '.[0].number'
+                  ]
+                  result = subprocess.run(get_issue_cmd, capture_output=True, text=True)
+                  issue_num = result.stdout.strip()
+                  
+                  print(f"Updating existing issue #{issue_num}")
+                  
+                  # Add comment
+                  subprocess.run([
+                      'gh', 'issue', 'comment', issue_num,
+                      '--repo', f'EPdacoder05/{repo_name}',
+                      '--body-file', 'issue_body.md'
+                  ])
+              else:
+                  # Create new issue
+                  print("Creating new issue")
+                  from datetime import datetime
+                  date = datetime.utcnow().strftime('%Y-%m-%d')
+                  
+                  subprocess.run([
+                      'gh', 'issue', 'create',
+                      '--repo', f'EPdacoder05/{repo_name}',
+                      '--title', f'🛡️ Zero-Day Alert: {total} vulnerabilities found ({date})',
+                      '--body-file', 'issue_body.md',
+                      '--label', 'security,zero-day,automated'
+                  ])
+          
+          except Exception as e:
+              print(f"Error creating issue: {e}")
+          EOF
+
+  # ============================================================================
+  # Unified Portfolio Dashboard
+  # ============================================================================
+  portfolio-dashboard:
+    name: Generate Portfolio Dashboard
+    needs: scan-repos
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download all scan results
+        uses: actions/download-artifact@v4
+        with:
+          path: all-results
+        continue-on-error: true
+      
+      - name: Generate unified dashboard
+        run: |
+          echo "## 🛡️ Portfolio-Wide Zero-Day Vulnerability Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📅 **Scan Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Repository Security Posture" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Repository | Status | Critical | High | Medium | Low |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|--------|----------|------|--------|-----|" >> $GITHUB_STEP_SUMMARY
+          
+          # Parse results for each repository
+          python3 << 'EOF'
+          import json
+          import os
+          from pathlib import Path
+          
+          results_dir = Path('all-results')
+          total_critical = 0
+          total_high = 0
+          total_medium = 0
+          total_low = 0
+          repos_with_issues = 0
+          
+          for results_file in results_dir.rglob('results-*.json'):
+              try:
+                  with open(results_file, 'r') as f:
+                      data = json.load(f)
+                  
+                  repo = data.get('repo', 'Unknown')
+                  pip_audit = data.get('pip_audit', {})
+                  critical = pip_audit.get('critical', 0)
+                  high = pip_audit.get('high', 0)
+                  medium = pip_audit.get('medium', 0)
+                  low = pip_audit.get('low', 0)
+                  
+                  total_critical += critical
+                  total_high += high
+                  total_medium += medium
+                  total_low += low
+                  
+                  if critical > 0 or high > 0:
+                      status = "❌ Action Required"
+                      repos_with_issues += 1
+                  elif medium > 0 or low > 0:
+                      status = "⚠️ Review Recommended"
+                  else:
+                      status = "✅ Clean"
+                  
+                  print(f"| {repo} | {status} | {critical} | {high} | {medium} | {low} |")
+              
+              except Exception as e:
+                  print(f"Error processing {results_file}: {e}")
+          
+          # Append summary statistics
+          print("")
+          print("### Portfolio Summary")
+          print("")
+          print(f"- **Total Repositories Scanned:** {len(list(results_dir.rglob('results-*.json')))}")
+          print(f"- **Repositories Requiring Action:** {repos_with_issues}")
+          print("")
+          print("### Overall Severity Breakdown")
+          print("")
+          print(f"- 🔴 **CRITICAL:** {total_critical}")
+          print(f"- 🟠 **HIGH:** {total_high}")
+          print(f"- 🟡 **MEDIUM:** {total_medium}")
+          print(f"- 🔵 **LOW:** {total_low}")
+          EOF >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Recommended Actions" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. Review issues created in affected repositories" >> $GITHUB_STEP_SUMMARY
+          echo "2. Download detailed scan reports from the **Artifacts** tab" >> $GITHUB_STEP_SUMMARY
+          echo "3. Prioritize CRITICAL and HIGH severity vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "4. Run \`pip-audit --fix\` in each affected repository" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*This portfolio scan runs weekly on Mondays at 3 AM UTC across all repositories.*" >> $GITHUB_STEP_SUMMARY

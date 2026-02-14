@@ -1,0 +1,630 @@
+# ============================================================================
+# 🛡️ Autonomous Zero-Day Vulnerability Monitor
+# ============================================================================
+# Copy this to your project's .github/workflows/zero-day-monitor.yml
+#
+# PURPOSE: Catches CVEs published BETWEEN code pushes. Your existing CI
+# (CodeQL, Bandit, Dependabot) only runs on push/PR — this runs on a
+# SCHEDULE to find zero-days before they're exploited.
+#
+# Tools (3-layer defense):
+#   1. pip-audit  — PyPI advisory database (fastest updates)
+#   2. osv-scanner — Google OSV database (broadest coverage, includes GitHub, NVD, PyPI)
+#   3. safety     — Safety DB (commercial-grade, good for transitive deps)
+#
+# Schedule: Weekly on Mondays at 3 AM UTC (offset from security.yml at 2 AM)
+#   - Change cron for more/less frequency
+#   - Can also be triggered manually via workflow_dispatch
+#
+# On CRITICAL/HIGH findings:
+#   - Auto-opens a GitHub Issue with details
+#   - Generates GITHUB_STEP_SUMMARY dashboard
+#   - Uploads full JSON reports as artifacts (90-day retention)
+#
+# Requirements:
+#   - requirements.txt or pyproject.toml in repo root
+#   - GITHUB_TOKEN (automatically available)
+#
+# Adapted from: https://github.com/EPdacoder05/System-Design-Engineering-Universal-Reference/tree/main/cicd
+# ============================================================================
+
+name: Zero-Day Vulnerability Monitor
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'  # Weekly on Mondays at 3 AM UTC
+  workflow_dispatch:
+    inputs:
+      severity_threshold:
+        description: 'Minimum severity to report'
+        required: false
+        default: 'high'
+        type: choice
+        options:
+          - critical
+          - high
+          - medium
+          - low
+      create_issue:
+        description: 'Auto-create GitHub issue on findings'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  issues: write
+  security-events: read
+
+jobs:
+  # ============================================================================
+  # Job 1: pip-audit — PyPI Advisory Database
+  # ============================================================================
+  pip-audit-scan:
+    name: pip-audit (PyPI Advisory DB)
+    runs-on: ubuntu-latest
+    outputs:
+      has_findings: ${{ steps.parse_results.outputs.has_findings }}
+      critical_count: ${{ steps.parse_results.outputs.critical_count }}
+      high_count: ${{ steps.parse_results.outputs.high_count }}
+      medium_count: ${{ steps.parse_results.outputs.medium_count }}
+      low_count: ${{ steps.parse_results.outputs.low_count }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+      
+      - name: Install project dependencies
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt 2>/dev/null || true
+          fi
+      
+      - name: Run pip-audit (JSON output)
+        run: |
+          pip-audit --format json --output pip-audit-results.json --desc on 2>&1 || true
+      
+      - name: Run pip-audit (human-readable output)
+        run: |
+          pip-audit --desc on || true
+        continue-on-error: true
+      
+      - name: Parse results and set outputs
+        id: parse_results
+        run: |
+          python3 << 'EOF'
+          import json
+          import os
+          
+          try:
+              with open('pip-audit-results.json', 'r') as f:
+                  data = json.load(f)
+              
+              # Count vulnerabilities by severity
+              critical = 0
+              high = 0
+              medium = 0
+              low = 0
+              has_findings = False
+              
+              dependencies = data.get('dependencies', [])
+              for dep in dependencies:
+                  vulns = dep.get('vulns', [])
+                  if vulns:
+                      has_findings = True
+                      for vuln in vulns:
+                          # pip-audit doesn't always include severity, default to high
+                          severity = vuln.get('severity', 'HIGH').upper()
+                          if 'CRITICAL' in severity:
+                              critical += 1
+                          elif 'HIGH' in severity:
+                              high += 1
+                          elif 'MEDIUM' in severity or 'MODERATE' in severity:
+                              medium += 1
+                          else:
+                              low += 1
+              
+              # Write to GitHub outputs
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f"has_findings={'true' if has_findings else 'false'}\n")
+                  f.write(f"critical_count={critical}\n")
+                  f.write(f"high_count={high}\n")
+                  f.write(f"medium_count={medium}\n")
+                  f.write(f"low_count={low}\n")
+              
+              print(f"Found: {critical} critical, {high} high, {medium} medium, {low} low")
+          
+          except FileNotFoundError:
+              # No results file means no vulnerabilities found
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write("has_findings=false\n")
+                  f.write("critical_count=0\n")
+                  f.write("high_count=0\n")
+                  f.write("medium_count=0\n")
+                  f.write("low_count=0\n")
+              print("No vulnerabilities found")
+          except Exception as e:
+              print(f"Error parsing results: {e}")
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write("has_findings=false\n")
+                  f.write("critical_count=0\n")
+                  f.write("high_count=0\n")
+                  f.write("medium_count=0\n")
+                  f.write("low_count=0\n")
+          EOF
+      
+      - name: Upload pip-audit results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pip-audit-results
+          path: pip-audit-results.json
+          retention-days: 90
+
+  # ============================================================================
+  # Job 2: osv-scanner — Google Open Source Vulnerabilities Database
+  # ============================================================================
+  osv-scan:
+    name: osv-scanner (Google OSV DB)
+    runs-on: ubuntu-latest
+    outputs:
+      has_findings: ${{ steps.parse_results.outputs.has_findings }}
+      vuln_count: ${{ steps.parse_results.outputs.vuln_count }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install osv-scanner
+        run: |
+          curl -sSfL https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64 -o osv-scanner
+          chmod +x osv-scanner
+      
+      - name: Run osv-scanner (JSON output)
+        run: |
+          ./osv-scanner --format json --output osv-results.json -r . 2>&1 || true
+      
+      - name: Run osv-scanner (human-readable output)
+        run: |
+          ./osv-scanner -r . || true
+        continue-on-error: true
+      
+      - name: Parse results and set outputs
+        id: parse_results
+        run: |
+          python3 << 'EOF'
+          import json
+          import os
+          
+          try:
+              with open('osv-results.json', 'r') as f:
+                  data = json.load(f)
+              
+              vuln_count = 0
+              has_findings = False
+              
+              results = data.get('results', [])
+              for result in results:
+                  packages = result.get('packages', [])
+                  for package in packages:
+                      vulns = package.get('vulnerabilities', [])
+                      if vulns:
+                          has_findings = True
+                          vuln_count += len(vulns)
+              
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f"has_findings={'true' if has_findings else 'false'}\n")
+                  f.write(f"vuln_count={vuln_count}\n")
+              
+              print(f"Found {vuln_count} vulnerabilities")
+          
+          except FileNotFoundError:
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write("has_findings=false\n")
+                  f.write("vuln_count=0\n")
+              print("No vulnerabilities found")
+          except Exception as e:
+              print(f"Error parsing results: {e}")
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write("has_findings=false\n")
+                  f.write("vuln_count=0\n")
+          EOF
+      
+      - name: Upload osv-scanner results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: osv-results
+          path: osv-results.json
+          retention-days: 90
+
+  # ============================================================================
+  # Job 3: safety — Safety Database (Known Vulnerabilities)
+  # ============================================================================
+  safety-scan:
+    name: safety (Safety DB)
+    runs-on: ubuntu-latest
+    outputs:
+      has_findings: ${{ steps.parse_results.outputs.has_findings }}
+      vuln_count: ${{ steps.parse_results.outputs.vuln_count }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install safety
+        run: |
+          python -m pip install --upgrade pip
+          pip install safety
+      
+      - name: Install project dependencies
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt 2>/dev/null || true
+          fi
+      
+      - name: Run safety check (JSON output)
+        run: |
+          safety check --json --output safety-results.json 2>&1 || true
+        continue-on-error: true
+        # Note: SAFETY_API_KEY environment variable can be set for full database access
+        # The free tier works for open source projects
+      
+      - name: Run safety check (human-readable output)
+        run: |
+          safety check 2>&1 || true
+        continue-on-error: true
+      
+      - name: Parse results and set outputs
+        id: parse_results
+        run: |
+          python3 << 'EOF'
+          import json
+          import os
+          
+          try:
+              with open('safety-results.json', 'r') as f:
+                  data = json.load(f)
+              
+              # Safety output format varies, handle both old and new formats
+              vuln_count = 0
+              has_findings = False
+              
+              if isinstance(data, list):
+                  # Old format: list of vulnerabilities
+                  vuln_count = len(data)
+                  has_findings = vuln_count > 0
+              elif isinstance(data, dict):
+                  # New format: dict with vulnerabilities key
+                  vulns = data.get('vulnerabilities', [])
+                  vuln_count = len(vulns)
+                  has_findings = vuln_count > 0
+              
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f"has_findings={'true' if has_findings else 'false'}\n")
+                  f.write(f"vuln_count={vuln_count}\n")
+              
+              print(f"Found {vuln_count} vulnerabilities")
+          
+          except FileNotFoundError:
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write("has_findings=false\n")
+                  f.write("vuln_count=0\n")
+              print("No vulnerabilities found")
+          except Exception as e:
+              print(f"Error parsing results: {e}")
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write("has_findings=false\n")
+                  f.write("vuln_count=0\n")
+          EOF
+      
+      - name: Upload safety results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: safety-results
+          path: safety-results.json
+          retention-days: 90
+
+  # ============================================================================
+  # Job 4: advisory-check — GitHub Advisory Database API
+  # ============================================================================
+  advisory-check:
+    name: GitHub Advisory Database
+    runs-on: ubuntu-latest
+    outputs:
+      has_new_advisories: ${{ steps.check_advisories.outputs.has_new_advisories }}
+      advisory_count: ${{ steps.check_advisories.outputs.advisory_count }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Check GitHub Advisory Database
+        id: check_advisories
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 << 'EOF'
+          import os
+          import json
+          import urllib.request
+          import urllib.parse
+          from datetime import datetime, timedelta
+          
+          # Read requirements.txt to get package names
+          packages = []
+          try:
+              with open('requirements.txt', 'r') as f:
+                  for line in f:
+                      line = line.strip()
+                      # Skip comments and empty lines
+                      if line and not line.startswith('#'):
+                          # Extract package name (before any version specifiers)
+                          package_name = line.split('>=')[0].split('==')[0].split('<=')[0].split('[')[0].strip()
+                          if package_name:
+                              packages.append(package_name)
+          except FileNotFoundError:
+              print("No requirements.txt found, checking common Python packages")
+              packages = []  # Will skip if no packages
+          
+          if not packages:
+              print("No packages to check")
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write("has_new_advisories=false\n")
+                  f.write("advisory_count=0\n")
+              exit(0)
+          
+          # Check for advisories in the last 7 days
+          seven_days_ago = (datetime.utcnow() - timedelta(days=7)).strftime('%Y-%m-%d')
+          
+          all_advisories = []
+          token = os.environ.get('GITHUB_TOKEN', '')
+          
+          for package in packages[:20]:  # Limit to first 20 packages to avoid rate limits
+              try:
+                  # Query GitHub Advisory Database
+                  url = f"https://api.github.com/advisories?ecosystem=pip&affects={urllib.parse.quote(package)}"
+                  
+                  headers = {
+                      'Accept': 'application/vnd.github+json',
+                      'X-GitHub-Api-Version': '2022-11-28'
+                  }
+                  if token:
+                      headers['Authorization'] = f'Bearer {token}'
+                  
+                  req = urllib.request.Request(url, headers=headers)
+                  with urllib.request.urlopen(req, timeout=10) as response:
+                      advisories = json.loads(response.read().decode())
+                      
+                      # Filter for recent advisories with critical/high severity
+                      for advisory in advisories:
+                          published = advisory.get('published_at', '')
+                          severity = advisory.get('severity', '').upper()
+                          
+                          if published >= seven_days_ago and severity in ['CRITICAL', 'HIGH']:
+                              all_advisories.append({
+                                  'package': package,
+                                  'severity': severity,
+                                  'summary': advisory.get('summary', ''),
+                                  'url': advisory.get('html_url', '')
+                              })
+                              print(f"Found {severity} advisory for {package}: {advisory.get('summary', '')}")
+              
+              except Exception as e:
+                  print(f"Error checking {package}: {e}")
+                  continue
+          
+          # Write outputs
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"has_new_advisories={'true' if all_advisories else 'false'}\n")
+              f.write(f"advisory_count={len(all_advisories)}\n")
+          
+          # Save advisories to file
+          with open('advisory-results.json', 'w') as f:
+              json.dump(all_advisories, f, indent=2)
+          
+          print(f"Total new advisories found: {len(all_advisories)}")
+          EOF
+      
+      - name: Upload advisory results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: advisory-results
+          path: advisory-results.json
+          retention-days: 90
+
+  # ============================================================================
+  # Job 5: report — Unified Dashboard + Auto-Issue Creation
+  # ============================================================================
+  report:
+    name: Generate Report & Create Issue
+    needs: [pip-audit-scan, osv-scan, safety-scan, advisory-check]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: scan-results
+        continue-on-error: true
+      
+      - name: Generate dashboard summary
+        run: |
+          echo "## 🛡️ Zero-Day Vulnerability Monitor Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📅 **Scan Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Scanner Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Scanner | Status | Findings |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|----------|" >> $GITHUB_STEP_SUMMARY
+          
+          # pip-audit results
+          if [ "${{ needs.pip-audit-scan.outputs.has_findings }}" = "true" ]; then
+            PIP_STATUS="❌ Vulnerabilities Found"
+            PIP_COUNT="${{ needs.pip-audit-scan.outputs.critical_count }} critical, ${{ needs.pip-audit-scan.outputs.high_count }} high"
+          else
+            PIP_STATUS="✅ Clean"
+            PIP_COUNT="0"
+          fi
+          echo "| pip-audit (PyPI) | $PIP_STATUS | $PIP_COUNT |" >> $GITHUB_STEP_SUMMARY
+          
+          # osv-scanner results
+          if [ "${{ needs.osv-scan.outputs.has_findings }}" = "true" ]; then
+            OSV_STATUS="❌ Vulnerabilities Found"
+            OSV_COUNT="${{ needs.osv-scan.outputs.vuln_count }}"
+          else
+            OSV_STATUS="✅ Clean"
+            OSV_COUNT="0"
+          fi
+          echo "| osv-scanner (Google OSV) | $OSV_STATUS | $OSV_COUNT |" >> $GITHUB_STEP_SUMMARY
+          
+          # safety results
+          if [ "${{ needs.safety-scan.outputs.has_findings }}" = "true" ]; then
+            SAFETY_STATUS="❌ Vulnerabilities Found"
+            SAFETY_COUNT="${{ needs.safety-scan.outputs.vuln_count }}"
+          else
+            SAFETY_STATUS="✅ Clean"
+            SAFETY_COUNT="0"
+          fi
+          echo "| safety (Safety DB) | $SAFETY_STATUS | $SAFETY_COUNT |" >> $GITHUB_STEP_SUMMARY
+          
+          # advisory results
+          if [ "${{ needs.advisory-check.outputs.has_new_advisories }}" = "true" ]; then
+            ADV_STATUS="⚠️ New Advisories"
+            ADV_COUNT="${{ needs.advisory-check.outputs.advisory_count }}"
+          else
+            ADV_STATUS="✅ No New Advisories"
+            ADV_COUNT="0"
+          fi
+          echo "| GitHub Advisories (7-day) | $ADV_STATUS | $ADV_COUNT |" >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Severity Breakdown" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔴 **CRITICAL:** ${{ needs.pip-audit-scan.outputs.critical_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🟠 **HIGH:** ${{ needs.pip-audit-scan.outputs.high_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🟡 **MEDIUM:** ${{ needs.pip-audit-scan.outputs.medium_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔵 **LOW:** ${{ needs.pip-audit-scan.outputs.low_count }}" >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Recommended Actions" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Review detailed findings in the **Artifacts** tab above" >> $GITHUB_STEP_SUMMARY
+          echo "- Update affected packages immediately for CRITICAL/HIGH vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "- Run \`pip-audit --fix\` locally for automated remediation where possible" >> $GITHUB_STEP_SUMMARY
+          echo "- Check the **Security** tab for historical trends" >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*This scan runs weekly on Mondays at 3 AM UTC to catch zero-day vulnerabilities between code pushes.*" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Check for existing open issue
+        id: check_issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Check if there's already an open zero-day alert issue
+          EXISTING_ISSUES=$(gh issue list --label zero-day --state open --json number --jq '. | length')
+          echo "existing_count=$EXISTING_ISSUES" >> $GITHUB_OUTPUT
+          
+          if [ "$EXISTING_ISSUES" -gt "0" ]; then
+            echo "Found $EXISTING_ISSUES existing open zero-day issue(s)"
+            ISSUE_NUMBER=$(gh issue list --label zero-day --state open --json number --jq '.[0].number')
+            echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Create or update GitHub issue
+        if: |
+          (needs.pip-audit-scan.outputs.critical_count > 0 || needs.pip-audit-scan.outputs.high_count > 0 || needs.advisory-check.outputs.has_new_advisories == 'true') &&
+          (github.event.inputs.create_issue == 'true' || github.event.inputs.create_issue == '')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CRITICAL_COUNT="${{ needs.pip-audit-scan.outputs.critical_count }}"
+          HIGH_COUNT="${{ needs.pip-audit-scan.outputs.high_count }}"
+          TOTAL_VULNS=$((CRITICAL_COUNT + HIGH_COUNT))
+          DATE=$(date -u '+%Y-%m-%d')
+          
+          # Create issue body
+          cat > issue_body.md << 'ISSUE_EOF'
+          ## 🛡️ Zero-Day Vulnerability Alert
+          
+          **Automated scan detected vulnerabilities that require immediate attention.**
+          
+          ### Summary
+          
+          - 🔴 **CRITICAL:** ${{ needs.pip-audit-scan.outputs.critical_count }}
+          - 🟠 **HIGH:** ${{ needs.pip-audit-scan.outputs.high_count }}
+          - 🟡 **MEDIUM:** ${{ needs.pip-audit-scan.outputs.medium_count }}
+          - 🔵 **LOW:** ${{ needs.pip-audit-scan.outputs.low_count }}
+          
+          ### Scanner Results
+          
+          | Scanner | Findings |
+          |---------|----------|
+          | pip-audit | ${{ needs.pip-audit-scan.outputs.critical_count }} critical, ${{ needs.pip-audit-scan.outputs.high_count }} high |
+          | osv-scanner | ${{ needs.osv-scan.outputs.vuln_count }} vulnerabilities |
+          | safety | ${{ needs.safety-scan.outputs.vuln_count }} vulnerabilities |
+          | GitHub Advisories | ${{ needs.advisory-check.outputs.advisory_count }} new advisories (7-day) |
+          
+          ### Immediate Actions Required
+          
+          1. **Review the workflow run:** [View Details](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          2. **Download artifacts:** Check the Artifacts section in the workflow run for detailed JSON reports
+          3. **Update dependencies:** Run `pip-audit --fix` to automatically update vulnerable packages where possible
+          4. **Manual updates:** For packages without automated fixes, update manually in requirements.txt
+          5. **Verify fixes:** Re-run the workflow after updates to confirm vulnerabilities are resolved
+          
+          ### Resources
+          
+          - [pip-audit documentation](https://pypi.org/project/pip-audit/)
+          - [GitHub Advisory Database](https://github.com/advisories)
+          - [OSV Database](https://osv.dev/)
+          
+          ---
+          
+          *This issue was automatically created by the Zero-Day Vulnerability Monitor.*  
+          *Next scheduled scan: Next Monday at 3 AM UTC*
+          ISSUE_EOF
+          
+          # Check if we should create a new issue or update existing
+          if [ "${{ steps.check_issue.outputs.existing_count }}" -gt "0" ]; then
+            ISSUE_NUM="${{ steps.check_issue.outputs.issue_number }}"
+            echo "Updating existing issue #$ISSUE_NUM"
+            gh issue comment $ISSUE_NUM --body-file issue_body.md
+            gh issue edit $ISSUE_NUM --title "🛡️ Zero-Day Alert: $TOTAL_VULNS vulnerabilities found ($DATE)"
+          else
+            echo "Creating new issue"
+            gh issue create \
+              --title "🛡️ Zero-Day Alert: $TOTAL_VULNS vulnerabilities found ($DATE)" \
+              --body-file issue_body.md \
+              --label security,zero-day,automated
+          fi
