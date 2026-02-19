@@ -15,6 +15,24 @@ Need CI/CD? → `cp cicd/test-pipeline.yml .github/workflows/`
 
 **Every file works standalone. Take what you need. Ship it.**
 
+## 🗺️ Portfolio Ecosystem
+
+This repository is the **foundation** of a portable engineering portfolio:
+
+```
+EPdacoder05/
+├── System-Design-Engineering-Universal-Reference  ← You are here (reference library)
+├── TF2S3-migration                                ← IaC automation (uses cicd/ templates)
+├── finops-cost-control-as-code                    ← FinOps (uses ml/anomaly_detector.py patterns)
+├── NullPointVector                                ← Security platform (uses security/ patterns)
+├── Sportsbook-aggregation                         ← Real-time analytics (uses patterns/ + api/)
+├── incident-replay-tool                           ← ML prediction (uses ml/ + monitoring/)
+├── ha-iot-stack                                   ← IoT infrastructure (uses cicd/ + Dockerfile)
+└── ha-ble-mqtt-bridge                             ← IoT bridge (uses cicd/ templates)
+```
+
+Patterns from this library power every project in the ecosystem.
+
 ## 📚 Table of Contents
 
 - [Architecture Patterns](#-architecture-patterns)
@@ -313,6 +331,19 @@ GitHub Actions workflows and infrastructure-as-code templates.
 - ✅ Proper layer caching
 - ✅ Security best practices (no cache, minimal image)
 
+### Docker Security Standards
+
+All projects in the ecosystem follow these Docker security principles:
+- ✅ **Minimal base images** — `python:3.x-slim-bookworm` (not `python:3.x`)
+- ✅ **Multi-stage builds** — Builder stage for deps, runtime stage for execution
+- ✅ **Non-root user** — `appuser` with no shell, minimal permissions
+- ✅ **HEALTHCHECK** — Every Dockerfile includes a health check instruction
+- ✅ **No privileged mode** — Use specific `cap_add` and device mappings instead
+- ✅ **Pinned versions** — Specific image tags, not `:latest`
+- ✅ **`.dockerignore`** — Prevents secrets and unnecessary files from entering images
+
+See `cicd/Dockerfile` for the reference implementation.
+
 ### [`cicd/terraform_module_template.tf`](cicd/terraform_module_template.tf)
 **Universal IaC template**
 - ✅ Variable definitions with validation
@@ -344,7 +375,7 @@ Anomaly detection and time-series forecasting for capacity planning.
 
 **Apply to:** Fraud detection, incident prediction, system monitoring, outlier detection
 
-**Apply to:** Fraud detection, system monitoring, outlier detection
+**Production example:** [finops-cost-control-as-code](https://github.com/EPdacoder05/finops-cost-control-as-code) — deployed AWS system using anomaly detection patterns from this module
 
 ### [`ml/forecaster.py`](ml/forecaster.py)
 **Random Forest time-series forecasting**
@@ -537,6 +568,12 @@ This is a reference library — customize it for your needs. No contributions ne
 3. **Production-Ready** — Battle-tested patterns
 4. **Copy-Paste Friendly** — No internal dependencies
 5. **Well-Documented** — Clear use cases and examples
+
+## 🛣️ Roadmap
+- [ ] Terraform Compliance Scanner (standalone repo, shares TF parsing from cicd/)
+- [ ] Secrets Rotation Engine (extends security/ patterns)  
+- [ ] Cost Anomaly Detector (production deployment of ml/anomaly_detector.py)
+- [ ] Docker security template (hardened Dockerfile patterns for all projects)
 
 ---
 
