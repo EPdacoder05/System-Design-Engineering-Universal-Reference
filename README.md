@@ -545,6 +545,9 @@ pip install fastapi sqlalchemy redis scikit-learn
 
 ## 🔒 Security
 
+### Docker Security
+For production-ready Docker hardening patterns, see [`docker/DOCKER_SECURITY.md`](docker/DOCKER_SECURITY.md)
+
 - All secrets managed via environment variables
 - **32+ attack pattern detection** included (SQL injection, XSS, supply chain, build system hijack, etc.)
 - Zero-day shield utilities (secure deserialization, timing attack protection)
