@@ -192,6 +192,9 @@ class GitHubConnector:
         source_type: str,
         source_ref: str,
         author: str = "",
+        repo: str = "",
+        native_id: str = "",
+        occurred_at: str = "",
     ) -> bool:
         """POST a single item to the OpsMemory ingest endpoint."""
         payload = {
@@ -199,6 +202,9 @@ class GitHubConnector:
             "source_type": source_type,
             "source_ref": source_ref,
             "author": author,
+            "repo": repo or None,
+            "native_id": native_id or None,
+            "occurred_at": occurred_at or None,
         }
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(self.config.ingest_url, json=payload)
@@ -219,6 +225,7 @@ class GitHubConnector:
 
         for repo in repos:
             repo_name: str = repo["name"]
+            repo_full_name = f"{self.config.owner}/{repo_name}"
             repo_stats = {"commits": 0, "prs": 0}
 
             try:
@@ -232,6 +239,9 @@ class GitHubConnector:
                         source_type="github_commit",
                         source_ref=commit.get("url", ""),
                         author=commit.get("author_name", ""),
+                        repo=repo_full_name,
+                        native_id=commit.get("sha", ""),
+                        occurred_at=commit.get("committed_at", ""),
                     )
                     repo_stats["commits"] += 1
             except Exception as exc:
@@ -249,6 +259,9 @@ class GitHubConnector:
                         text=text,
                         source_type="github_pr",
                         source_ref=pr.get("url", ""),
+                        repo=repo_full_name,
+                        native_id=str(pr.get("number", "")),
+                        occurred_at=pr.get("created_at", ""),
                     )
                     repo_stats["prs"] += 1
             except Exception as exc:

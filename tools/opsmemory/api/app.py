@@ -99,6 +99,10 @@ class IngestRequest(BaseModel):
     source_ref: str = ""
     author: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    # Structured evidence fields for auditable, deduplicated records.
+    repo: Optional[str] = None
+    native_id: Optional[str] = None
+    occurred_at: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -135,12 +139,21 @@ async def ingest(
         source_ref=req.source_ref,
         author=req.author,
         metadata=req.metadata or {},
+        repo=req.repo,
+        native_id=req.native_id,
+        occurred_at=req.occurred_at,
     )
     item = await ingest_evidence(session, payload, correlation_id)
-    redacted = "[REDACTED]" in item.raw_text
+    # Prefer the deterministic sha256 evidence_id; fall back to the internal UUID.
+    public_evidence_id = item.evidence_id or str(item.id)
     return {
-        "evidence_id": str(item.id),
-        "redacted": redacted,
+        "evidence_id": public_evidence_id,
+        "repo": item.repo,
+        "native_id": item.native_id,
+        "occurred_at": item.occurred_at.isoformat() if item.occurred_at else None,
+        "ingested_at": item.ingested_at.isoformat() if item.ingested_at else None,
+        "excerpt": item.excerpt,
+        "redacted": "[REDACTED]" in item.raw_text,
         "correlation_id": correlation_id,
     }
 
@@ -176,10 +189,14 @@ async def query(
 
     citations = [
         {
-            "evidence_id": str(item.id),
+            "evidence_id": item.evidence_id or str(item.id),
             "source_ref": item.source_ref,
             "source_type": item.source_type,
-            "snippet": item.raw_text[:200],
+            "repo": item.repo,
+            "native_id": item.native_id,
+            "occurred_at": item.occurred_at.isoformat() if item.occurred_at else None,
+            "ingested_at": item.ingested_at.isoformat() if item.ingested_at else None,
+            "excerpt": item.excerpt or item.raw_text[:200],
         }
         for item, _score in semantic_results
     ]
@@ -227,13 +244,17 @@ async def list_evidence(session: AsyncSession = Depends(get_db)):
     items = result.scalars().all()
     return [
         {
+            "evidence_id": e.evidence_id or str(e.id),
             "id": str(e.id),
             "source_type": e.source_type,
             "source_ref": e.source_ref,
+            "repo": e.repo,
+            "native_id": e.native_id,
             "author": e.author,
-            "consolidated": e.consolidated,
+            "occurred_at": e.occurred_at.isoformat() if e.occurred_at else None,
             "ingested_at": e.ingested_at.isoformat() if e.ingested_at else None,
-            "snippet": e.raw_text[:200],
+            "consolidated": e.consolidated,
+            "excerpt": e.excerpt,
         }
         for e in items
     ]
