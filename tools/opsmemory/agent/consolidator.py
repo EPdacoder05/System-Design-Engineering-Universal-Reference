@@ -66,7 +66,7 @@ async def consolidate(session, config: ConsolidationConfig) -> ConsolidationRun:
         # Group into chunks of 10 and create one Memory per chunk.
         chunk_size = 10
         memory_count = 0
-        for i in range(0, max(len(items), 1), chunk_size):
+        for i in range(0, len(items), chunk_size):
             chunk = items[i : i + chunk_size]
             if not chunk:
                 break

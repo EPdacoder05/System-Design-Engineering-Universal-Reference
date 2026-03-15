@@ -204,9 +204,11 @@ class SourceRepository:
     ) -> Source:
         result = await session.execute(
             select(Source).where(
-                Source.owner == owner,
-                Source.repo == repo,
-                Source.source_type == source_type,
+                Source.owner == owner
+            ).where(
+                Source.repo == repo
+            ).where(
+                Source.source_type == source_type
             )
         )
         source = result.scalar_one_or_none()
