@@ -139,12 +139,13 @@ class GitHubConnector:
         """
         owner = await self.resolve_owner()
         owner_type = await self.resolve_owner_type(owner)
+        params: Dict[str, Any]
         if owner_type == "Organization":
             url = f"{self._github_api_url}/orgs/{owner}/repos"
-            params: Dict[str, Any] = {"per_page": 100, "type": "public"}
+            params = {"per_page": 100, "type": "public"}
         else:
             url = f"{self._github_api_url}/users/{owner}/repos"
-            params = {"per_page": 100, "type": "owner"}  # type: ignore[assignment]
+            params = {"per_page": 100, "type": "owner"}
         async with httpx.AsyncClient(headers=self._headers, timeout=30) as client:
             response = await client.get(url, params=params)
             response.raise_for_status()

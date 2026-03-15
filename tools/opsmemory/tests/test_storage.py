@@ -128,3 +128,114 @@ async def test_consolidation_run_repository_start_has_running_status():
 
     assert run.status == "running"
     assert run.finished_at is None
+
+
+# ---------------------------------------------------------------------------
+# EvidenceRepository — delete operations
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_evidence_delete_by_id_returns_true_when_found():
+    """delete_by_id returns True when the record exists and is deleted."""
+    session = _make_session()
+    item_id = uuid.uuid4()
+    item = EvidenceItem(id=item_id, raw_text="test", source_type="manual", source_ref="")
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = item
+    session.execute = AsyncMock(return_value=mock_result)
+    session.delete = AsyncMock()
+
+    result = await EvidenceRepository.delete_by_id(session, item_id)
+
+    assert result is True
+    session.delete.assert_called_once_with(item)
+    session.flush.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_evidence_delete_by_id_returns_false_when_not_found():
+    """delete_by_id returns False when no record matches the given UUID."""
+    session = _make_session()
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    session.execute = AsyncMock(return_value=mock_result)
+    session.delete = AsyncMock()
+
+    result = await EvidenceRepository.delete_by_id(session, uuid.uuid4())
+
+    assert result is False
+    session.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_evidence_delete_all_returns_count():
+    """delete_all returns the number of records that were present before deletion."""
+    session = _make_session()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 7
+    # delete() call returns a mock result that is not used
+    delete_result = MagicMock()
+    session.execute = AsyncMock(side_effect=[count_result, delete_result])
+
+    count = await EvidenceRepository.delete_all(session)
+
+    assert count == 7
+    session.flush.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# MemoryRepository — delete operations
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_memory_delete_by_id_returns_true_when_found():
+    """delete_by_id returns True when the Memory record exists."""
+    session = _make_session()
+    mem_id = uuid.uuid4()
+    memory = Memory(id=mem_id, content="test", source_ids=[], metadata_={})
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = memory
+    session.execute = AsyncMock(return_value=mock_result)
+    session.delete = AsyncMock()
+
+    result = await MemoryRepository.delete_by_id(session, mem_id)
+
+    assert result is True
+    session.delete.assert_called_once_with(memory)
+    session.flush.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_memory_delete_by_id_returns_false_when_not_found():
+    """delete_by_id returns False when no Memory matches the UUID."""
+    session = _make_session()
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    session.execute = AsyncMock(return_value=mock_result)
+    session.delete = AsyncMock()
+
+    result = await MemoryRepository.delete_by_id(session, uuid.uuid4())
+
+    assert result is False
+    session.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_memory_delete_all_returns_count():
+    """delete_all returns the number of Memory records deleted."""
+    session = _make_session()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 3
+    delete_result = MagicMock()
+    session.execute = AsyncMock(side_effect=[count_result, delete_result])
+
+    count = await MemoryRepository.delete_all(session)
+
+    assert count == 3
+    session.flush.assert_called_once()

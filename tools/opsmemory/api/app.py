@@ -273,3 +273,57 @@ async def list_sources(session: AsyncSession = Depends(get_db)):
         }
         for s in sources
     ]
+
+
+@app.get("/status")
+async def status(session: AsyncSession = Depends(get_db)):
+    """Return a summary of current memory store counts."""
+    evidence_counts = await EvidenceRepository.count(session)
+    memory_count = await MemoryRepository.count(session)
+    return {
+        "evidence_total": evidence_counts["total"],
+        "evidence_unconsolidated": evidence_counts["unconsolidated"],
+        "memories": memory_count,
+    }
+
+
+@app.delete("/evidence/{evidence_id}")
+async def delete_evidence(evidence_id: str, session: AsyncSession = Depends(get_db)):
+    """Delete a single evidence item by its UUID."""
+    try:
+        eid = uuid.UUID(evidence_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid UUID format")
+    deleted = await EvidenceRepository.delete_by_id(session, eid)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Evidence item not found")
+    return {"deleted": evidence_id}
+
+
+@app.delete("/memories/{memory_id}")
+async def delete_memory(memory_id: str, session: AsyncSession = Depends(get_db)):
+    """Delete a single memory record by its UUID."""
+    try:
+        mid = uuid.UUID(memory_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid UUID format")
+    deleted = await MemoryRepository.delete_by_id(session, mid)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"deleted": memory_id}
+
+
+@app.post("/clear")
+async def clear_all(session: AsyncSession = Depends(get_db)):
+    """Delete all evidence items and memories — full reset."""
+    evidence_deleted = await EvidenceRepository.delete_all(session)
+    memories_deleted = await MemoryRepository.delete_all(session)
+    log.warning(
+        "opsmemory_cleared",
+        evidence_deleted=evidence_deleted,
+        memories_deleted=memories_deleted,
+    )
+    return {
+        "evidence_deleted": evidence_deleted,
+        "memories_deleted": memories_deleted,
+    }

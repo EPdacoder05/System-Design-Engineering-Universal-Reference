@@ -19,10 +19,12 @@ OpsMemory is an always-on background agent that:
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────┐
-│                     FastAPI (port 8000)              │
-│  /ingest  /query  /consolidate  /memories  /sources  │
-└────────────────────┬─────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                     FastAPI (port 8000)                      │
+│  /ingest  /query  /consolidate  /memories  /evidence         │
+│  /sources  /status  DELETE /evidence/{id}  DELETE            │
+│  /memories/{id}  POST /clear                                 │
+└────────────────────┬─────────────────────────────────────────┘
                      │ async
           ┌──────────▼──────────┐
           │    Agent Runtime     │
@@ -45,10 +47,10 @@ OpsMemory is an always-on background agent that:
           │  sources                │
           └─────────────────────────┘
 
-          ┌──────────────────────────┐
-          │   GitHub Connector       │
-          │  (commits + PRs → /ingest│
-          └──────────────────────────┘
+          ┌──────────────────────────┐    ┌───────────────────────────┐
+          │   GitHub Connector       │    │   Streamlit Dashboard     │
+          │  (commits + PRs → /ingest│    │  dashboard.py (port 8501) │
+          └──────────────────────────┘    └───────────────────────────┘
 ```
 
 ---
@@ -85,6 +87,11 @@ curl "http://localhost:8000/query?q=What+was+deployed%3F"
 
 # 6. Trigger consolidation
 curl -X POST http://localhost:8000/consolidate
+
+# 7. Dashboard (optional — requires streamlit)
+cd ..
+streamlit run dashboard.py
+# Opens at http://localhost:8501
 ```
 
 ---
@@ -106,6 +113,21 @@ curl -X POST http://localhost:8000/consolidate
 ---
 
 ## API Reference
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/health` | GET | API liveness check |
+| `/ready` | GET | Returns 200 when the database is reachable |
+| `/ingest` | POST | Ingest new text evidence |
+| `/query` | GET | Semantic search over evidence + memories |
+| `/consolidate` | POST | Trigger a consolidation cycle |
+| `/status` | GET | Evidence and memory counts |
+| `/memories` | GET | List consolidated memory records |
+| `/memories/{id}` | DELETE | Delete a single memory record |
+| `/evidence` | GET | List raw evidence items |
+| `/evidence/{id}` | DELETE | Delete a single evidence item |
+| `/sources` | GET | List registered data sources |
+| `/clear` | POST | Delete all evidence and memories (full reset) |
 
 ### `GET /health`
 ```bash
@@ -135,6 +157,12 @@ curl -X POST http://localhost:8000/consolidate
 # {"run_id":"<uuid>","memories_created":3,"evidence_consolidated":27}
 ```
 
+### `GET /status`
+```bash
+curl http://localhost:8000/status
+# {"evidence_total":42,"evidence_unconsolidated":15,"memories":5}
+```
+
 ### `GET /query`
 ```bash
 curl "http://localhost:8000/query?q=recent+deployments&limit=5"
@@ -151,15 +179,58 @@ curl "http://localhost:8000/query?q=recent+deployments&limit=5"
 curl http://localhost:8000/memories
 ```
 
+### `DELETE /memories/{id}`
+```bash
+curl -X DELETE http://localhost:8000/memories/<uuid>
+# {"deleted":"<uuid>"}
+```
+
 ### `GET /evidence`
 ```bash
 curl http://localhost:8000/evidence
+```
+
+### `DELETE /evidence/{id}`
+```bash
+curl -X DELETE http://localhost:8000/evidence/<uuid>
+# {"deleted":"<uuid>"}
 ```
 
 ### `GET /sources`
 ```bash
 curl http://localhost:8000/sources
 ```
+
+### `POST /clear`
+```bash
+curl -X POST http://localhost:8000/clear
+# {"evidence_deleted":42,"memories_deleted":5}
+```
+
+---
+
+## Streamlit Dashboard
+
+`dashboard.py` provides a point-and-click interface that connects to the running OpsMemory API.
+
+```bash
+# With the API already running on port 8000:
+streamlit run tools/opsmemory/dashboard.py
+# Opens at http://localhost:8501
+```
+
+The dashboard provides:
+
+| Feature | Description |
+|---|---|
+| 📊 Live stats | Evidence total / unconsolidated / memory count, refreshed each page load |
+| 📥 Ingest text | Paste any text and pick a source type |
+| 📎 Upload file | Upload `.txt` or `.json` files directly |
+| 🔍 Query | Natural-language search with expandable citation cards |
+| 🧠 Memories | Browse consolidated memory records; delete individual items |
+| 📋 Evidence | Browse raw evidence items; delete individual items |
+| 🔄 Consolidate | One-click consolidation trigger from the sidebar |
+| 🗑️ Clear all | Full reset from the sidebar (two-click confirmation) |
 
 ---
 
