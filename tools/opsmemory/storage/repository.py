@@ -30,18 +30,26 @@ class EvidenceRepository:
         source_type: str,
         source_ref: str,
         author: Optional[str] = None,
-        event_ts: Optional[datetime] = None,
+        occurred_at: Optional[datetime] = None,
         metadata: Optional[dict] = None,
         correlation_id: Optional[str] = None,
+        evidence_id: Optional[str] = None,
+        repo: Optional[str] = None,
+        native_id: Optional[str] = None,
+        excerpt: Optional[str] = None,
     ) -> EvidenceItem:
         item = EvidenceItem(
             raw_text=raw_text,
             source_type=source_type,
             source_ref=source_ref,
             author=author,
-            event_ts=event_ts,
+            occurred_at=occurred_at,
             metadata_=metadata or {},
             correlation_id=correlation_id,
+            evidence_id=evidence_id,
+            repo=repo,
+            native_id=native_id,
+            excerpt=excerpt,
         )
         session.add(item)
         await session.flush()
