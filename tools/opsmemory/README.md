@@ -97,7 +97,7 @@ curl -X POST http://localhost:8000/consolidate
 | `DB_POOL_SIZE` | `10` | Connection pool size |
 | `DB_MAX_OVERFLOW` | `20` | Max extra connections above pool size |
 | `GITHUB_TOKEN` | _(none)_ | GitHub personal access token (for private repos / higher rate limits) |
-| `GITHUB_OWNER` | `EPdacoder05` | GitHub username to enumerate repositories for |
+| `GITHUB_OWNER` | _(resolved from token)_ | GitHub username or organisation to enumerate repositories for. If unset, the connector calls `GET /user` with the supplied token to resolve the authenticated identity automatically. |
 | `GITHUB_INCLUDE_REPOS` | _(all)_ | Comma-separated allowlist of repo names |
 | `GITHUB_EXCLUDE_REPOS` | _(none)_ | Comma-separated denylist of repo names |
 | `GITHUB_POLL_INTERVAL` | `3600` | Seconds between GitHub sweeps |
@@ -123,7 +123,7 @@ curl -X POST http://localhost:8000/ingest \
   -d '{
     "text": "Merged PR #42: Add rate limiting",
     "source_type": "github_pr",
-    "source_ref": "https://github.com/EPdacoder05/myrepo/pull/42",
+    "source_ref": "https://github.com/your-org/myrepo/pull/42",
     "author": "alice"
   }'
 # {"evidence_id":"<uuid>","redacted":false,"correlation_id":"<uuid>"}
@@ -167,10 +167,12 @@ curl http://localhost:8000/sources
 
 The GitHub connector (`connectors/github_connector.py`) runs a polling loop that:
 
-1. Lists all repositories for `GITHUB_OWNER`.
-2. Fetches recent commits and PRs for each repo.
-3. Normalises each item into structured text.
-4. POSTs to `OPSMEMORY_INGEST_URL`.
+1. Resolves the target owner (from `GITHUB_OWNER` or the authenticated token identity).
+2. Detects whether the owner is a personal account or organisation and picks the correct API endpoint.
+3. Lists repositories for the resolved owner.
+4. Fetches recent commits and PRs for each repo.
+5. Normalises each item into structured text.
+6. POSTs to `OPSMEMORY_INGEST_URL`.
 
 It uses exponential back-off retry (tenacity) on 429 / 5xx responses.
 
@@ -230,4 +232,10 @@ pytest tools/opsmemory/tests/ -v
 
 ## Repos Included by Default
 
-All public repositories owned by `EPdacoder05` are included by default. Use `GITHUB_INCLUDE_REPOS` or `GITHUB_EXCLUDE_REPOS` to restrict the set.
+All public repositories for the resolved owner are included by default.
+- If `GITHUB_OWNER` is set, that username or organisation is used directly.
+- If `GITHUB_OWNER` is unset, the connector resolves the owner from the authenticated `GITHUB_TOKEN` via `GET /user`.
+- Organisation owners are supported — the connector detects org accounts automatically and uses the `/orgs/{owner}/repos` endpoint.
+- Use `GITHUB_INCLUDE_REPOS` or `GITHUB_EXCLUDE_REPOS` to restrict the set.
+
+> **Security note:** Supply `GITHUB_TOKEN` and any other secrets via environment variables, a `.env` file (not committed to source control), or a secure secret store such as [GitHub Actions secrets](https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions). Never commit tokens or credentials to version control.

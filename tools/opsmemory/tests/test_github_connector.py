@@ -3,6 +3,7 @@
 import hashlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from tools.opsmemory.agent.ingestor import IngestPayload, compute_evidence_id
@@ -312,7 +313,7 @@ async def test_run_once_continues_on_repo_error(connector):
 
 def test_config_default_owner():
     cfg = GitHubConnectorConfig()
-    assert cfg.owner == "EPdacoder05"
+    assert cfg.owner is None
 
 
 def test_config_include_exclude_repos():
@@ -343,3 +344,199 @@ def test_list_repos_applies_exclude_filter():
     result = [r for r in raw_repos if r["name"] not in cfg.exclude_repos]
     assert len(result) == 1
     assert result[0]["name"] == "keep-me"
+
+
+# ---------------------------------------------------------------------------
+# GitHubConnector — dynamic owner resolution
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_owner_uses_explicit_config():
+    """resolve_owner returns config.owner when explicitly set."""
+    cfg = GitHubConnectorConfig(owner="myorg", github_token=None)
+    c = GitHubConnector(config=cfg)
+    assert await c.resolve_owner() == "myorg"
+
+
+@pytest.mark.asyncio
+async def test_resolve_owner_calls_user_api_when_no_explicit_owner():
+    """resolve_owner falls back to GET /user when no owner is configured."""
+    cfg = GitHubConnectorConfig(owner=None, github_token="gh-test-token")
+    c = GitHubConnector(config=cfg)
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"login": "resolved-user", "type": "User"}
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client_cls.return_value = mock_client
+
+        owner = await c.resolve_owner()
+
+    assert owner == "resolved-user"
+
+
+@pytest.mark.asyncio
+async def test_resolve_owner_raises_when_no_owner_and_no_token():
+    """resolve_owner raises ValueError when neither owner nor token is set."""
+    cfg = GitHubConnectorConfig(owner=None, github_token=None)
+    c = GitHubConnector(config=cfg)
+    with pytest.raises(ValueError, match="GITHUB_OWNER"):
+        await c.resolve_owner()
+
+
+@pytest.mark.asyncio
+async def test_resolve_owner_type_returns_organization():
+    """resolve_owner_type returns 'Organization' for org accounts."""
+    cfg = GitHubConnectorConfig(owner="my-org", github_token=None)
+    c = GitHubConnector(config=cfg)
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"login": "my-org", "type": "Organization"}
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client_cls.return_value = mock_client
+
+        owner_type = await c.resolve_owner_type("my-org")
+
+    assert owner_type == "Organization"
+
+
+@pytest.mark.asyncio
+async def test_resolve_owner_type_returns_user_for_personal_account():
+    """resolve_owner_type returns 'User' for personal accounts."""
+    cfg = GitHubConnectorConfig(owner="alice", github_token=None)
+    c = GitHubConnector(config=cfg)
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"login": "alice", "type": "User"}
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client_cls.return_value = mock_client
+
+        owner_type = await c.resolve_owner_type("alice")
+
+    assert owner_type == "User"
+
+
+@pytest.mark.asyncio
+async def test_resolve_owner_type_falls_back_to_user_on_error():
+    """resolve_owner_type returns 'User' when the API call fails."""
+    cfg = GitHubConnectorConfig(owner="someone", github_token=None)
+    c = GitHubConnector(config=cfg)
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("timeout"))
+        mock_client_cls.return_value = mock_client
+
+        owner_type = await c.resolve_owner_type("someone")
+
+    assert owner_type == "User"
+
+
+@pytest.mark.asyncio
+async def test_list_repos_uses_orgs_endpoint_for_organization():
+    """list_repos calls /orgs/{owner}/repos for organization accounts."""
+    cfg = GitHubConnectorConfig(owner="my-org", github_token=None)
+    c = GitHubConnector(config=cfg)
+
+    with (
+        patch.object(c, "resolve_owner", new=AsyncMock(return_value="my-org")),
+        patch.object(c, "resolve_owner_type", new=AsyncMock(return_value="Organization")),
+    ):
+        mock_response = MagicMock()
+        mock_response.json.return_value = [{"name": "org-repo"}]
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client_cls.return_value = mock_client
+
+            repos = await c.list_repos()
+
+        call_args = mock_client.get.call_args
+        assert "/orgs/my-org/repos" in call_args.args[0]
+
+    assert repos == [{"name": "org-repo"}]
+
+
+@pytest.mark.asyncio
+async def test_list_repos_uses_users_endpoint_for_personal_account():
+    """list_repos calls /users/{owner}/repos for personal accounts."""
+    cfg = GitHubConnectorConfig(owner="alice", github_token=None)
+    c = GitHubConnector(config=cfg)
+
+    with (
+        patch.object(c, "resolve_owner", new=AsyncMock(return_value="alice")),
+        patch.object(c, "resolve_owner_type", new=AsyncMock(return_value="User")),
+    ):
+        mock_response = MagicMock()
+        mock_response.json.return_value = [{"name": "personal-repo"}]
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client_cls.return_value = mock_client
+
+            repos = await c.list_repos()
+
+        call_args = mock_client.get.call_args
+        assert "/users/alice/repos" in call_args.args[0]
+
+    assert repos == [{"name": "personal-repo"}]
+
+
+@pytest.mark.asyncio
+async def test_run_once_resolves_owner_dynamically():
+    """run_once resolves owner from token when GITHUB_OWNER is not set."""
+    cfg = GitHubConnectorConfig(owner=None, github_token="gh-secret")
+    c = GitHubConnector(config=cfg)
+
+    mock_repos = [{"name": "dynamic-repo"}]
+    mock_commits = [
+        {
+            "sha": "aabbccdd11223344",
+            "message": "Dynamic owner commit",
+            "author_name": "Carol",
+            "author_email": "carol@example.com",
+            "committed_at": "2026-03-15T08:00:00Z",
+            "url": "https://github.com/resolved-user/dynamic-repo/commit/aabbccdd11223344",
+        }
+    ]
+
+    with (
+        patch.object(c, "resolve_owner", new=AsyncMock(return_value="resolved-user")),
+        patch.object(c, "list_repos", new=AsyncMock(return_value=mock_repos)),
+        patch.object(c, "fetch_recent_commits", new=AsyncMock(return_value=mock_commits)),
+        patch.object(c, "fetch_recent_prs", new=AsyncMock(return_value=[])),
+        patch.object(c, "ingest_item", new=AsyncMock(return_value=True)) as mock_ingest,
+    ):
+        stats = await c.run_once()
+
+    assert stats["dynamic-repo"]["commits"] == 1
+    call_kwargs = mock_ingest.call_args.kwargs
+    assert call_kwargs["repo"] == "resolved-user/dynamic-repo"
