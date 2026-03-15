@@ -1,0 +1,36 @@
+version: "3.9"
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: opsmemory
+      POSTGRES_PASSWORD: opsmemory
+      POSTGRES_DB: opsmemory
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opsmemory"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  opsmemory:
+    build:
+      context: ../..
+      dockerfile: tools/opsmemory/docker/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://opsmemory:opsmemory@postgres:5432/opsmemory
+      GITHUB_OWNER: EPdacoder05
+      OPSMEMORY_INGEST_URL: http://opsmemory:8000/ingest
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./inbox:/app/inbox
+
+volumes:
+  pgdata:
