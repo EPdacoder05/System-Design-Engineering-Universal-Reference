@@ -49,11 +49,23 @@ class EvidenceItem(Base):
     __tablename__ = "evidence_items"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Deterministic SHA-256 ID derived from source_type + repo + native_id + occurred_at.
+    # Used as the public-facing auditable identifier.
+    evidence_id = Column(String(64), nullable=True, unique=True, index=True)
     raw_text = Column(Text, nullable=False)
+    # Short redacted excerpt (≤500 chars) stored so downstream analysis
+    # does not require a refetch of the full raw_text.
+    excerpt = Column(Text, nullable=True)
     source_type = Column(String(50), nullable=False)
     source_ref = Column(String(500), nullable=False, default="")
+    # Owner/repo name (e.g. "EPdacoder05/my-repo") for GitHub sources.
+    repo = Column(String(255), nullable=True)
+    # Native identifier from the originating source system:
+    # commit SHA for git commits, PR number for pull requests.
+    native_id = Column(String(255), nullable=True)
     author = Column(String(255), nullable=True)
-    event_ts = Column(DateTime(timezone=True), nullable=True)
+    # When the original event occurred (commit authored_at, PR created_at, etc.)
+    occurred_at = Column(DateTime(timezone=True), nullable=True)
     metadata_ = Column(JSONB, nullable=False, default=dict)
     ingested_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     consolidated = Column(Boolean, nullable=False, default=False)
