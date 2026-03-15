@@ -125,7 +125,10 @@ class EmbeddingRepository:
             .limit(limit)
         )
         rows = result.all()
-        return [(row[0], float(1.0 - row[1])) for row in rows]
+        # pgvector cosine_distance returns values in [0, 2] for non-normalised
+        # vectors (0 = identical, 2 = opposite).  Convert to a similarity score
+        # in [0, 1] via  similarity = 1 - (distance / 2).
+        return [(row[0], float(1.0 - row[1] / 2.0)) for row in rows]
 
 
 class MemoryRepository:

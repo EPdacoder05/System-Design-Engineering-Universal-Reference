@@ -87,6 +87,8 @@ class EvidenceEmbedding(Base):
         # NOTE: In production, ivfflat requires rows to already exist before the
         # index can be built (it needs to select centroids). Run this migration
         # after loading a representative dataset, or use hnsw instead.
+        # The migrate.py script also attempts to create this index with a
+        # graceful fallback in case the table is empty at migration time.
         Index(
             "ix_evidence_embeddings_embedding_ivfflat",
             "embedding",

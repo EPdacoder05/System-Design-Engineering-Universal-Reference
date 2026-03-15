@@ -4,7 +4,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
@@ -76,7 +76,7 @@ async def correlation_and_logging_middleware(request: Request, call_next):
 # ---------------------------------------------------------------------------
 
 
-async def get_db() -> AsyncSession:  # type: ignore[return]
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     if _session_factory is None:
         raise HTTPException(status_code=503, detail="Database not initialised")
     async with _session_factory() as session:
