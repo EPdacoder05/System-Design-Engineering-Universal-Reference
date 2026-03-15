@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
-from sqlalchemy import select, delete
+from sqlalchemy import func, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tools.opsmemory.storage.models import (
@@ -90,6 +90,50 @@ class EvidenceRepository:
         )
         return result.scalar_one_or_none()
 
+    @staticmethod
+    async def delete_by_id(
+        session: AsyncSession, evidence_id: uuid.UUID
+    ) -> bool:
+        """Delete a single evidence item and its embedding by UUID.
+
+        Returns ``True`` if a record was deleted, ``False`` if not found.
+        """
+        result = await session.execute(
+            select(EvidenceItem).where(EvidenceItem.id == evidence_id)
+        )
+        item = result.scalar_one_or_none()
+        if item is None:
+            return False
+        await session.delete(item)
+        await session.flush()
+        return True
+
+    @staticmethod
+    async def delete_all(session: AsyncSession) -> int:
+        """Delete every evidence item and return the count removed."""
+        count_result = await session.execute(
+            select(func.count()).select_from(EvidenceItem)
+        )
+        count = count_result.scalar_one()
+        await session.execute(delete(EvidenceItem))
+        await session.flush()
+        return count
+
+    @staticmethod
+    async def count(session: AsyncSession) -> dict:
+        """Return total and unconsolidated counts for evidence items."""
+        total = (
+            await session.execute(select(func.count()).select_from(EvidenceItem))
+        ).scalar_one()
+        unconsolidated = (
+            await session.execute(
+                select(func.count()).select_from(EvidenceItem).where(
+                    EvidenceItem.consolidated.is_(False)
+                )
+            )
+        ).scalar_one()
+        return {"total": total, "unconsolidated": unconsolidated}
+
 
 class EmbeddingRepository:
     """Operations for EvidenceEmbedding records including semantic search."""
@@ -167,6 +211,40 @@ class MemoryRepository:
             select(Memory).order_by(Memory.created_at.desc()).limit(limit)
         )
         return list(result.scalars().all())
+
+    @staticmethod
+    async def delete_by_id(session: AsyncSession, memory_id: uuid.UUID) -> bool:
+        """Delete a single Memory by UUID.
+
+        Returns ``True`` if deleted, ``False`` if not found.
+        """
+        result = await session.execute(
+            select(Memory).where(Memory.id == memory_id)
+        )
+        memory = result.scalar_one_or_none()
+        if memory is None:
+            return False
+        await session.delete(memory)
+        await session.flush()
+        return True
+
+    @staticmethod
+    async def delete_all(session: AsyncSession) -> int:
+        """Delete every Memory record and return the count removed."""
+        count_result = await session.execute(
+            select(func.count()).select_from(Memory)
+        )
+        count = count_result.scalar_one()
+        await session.execute(delete(Memory))
+        await session.flush()
+        return count
+
+    @staticmethod
+    async def count(session: AsyncSession) -> int:
+        """Return the number of Memory records."""
+        return (
+            await session.execute(select(func.count()).select_from(Memory))
+        ).scalar_one()
 
 
 class ConsolidationRunRepository:

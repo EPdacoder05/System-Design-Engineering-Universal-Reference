@@ -22,7 +22,10 @@ services:
       dockerfile: tools/opsmemory/docker/Dockerfile
     environment:
       DATABASE_URL: postgresql+asyncpg://opsmemory:opsmemory@postgres:5432/opsmemory
-      GITHUB_OWNER: EPdacoder05
+      # Supply GITHUB_TOKEN and GITHUB_OWNER (optional) via a .env file or
+      # environment variables — never hardcode credentials here.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_OWNER: ${GITHUB_OWNER:-}
       OPSMEMORY_INGEST_URL: http://opsmemory:8000/ingest
     ports:
       - "8000:8000"

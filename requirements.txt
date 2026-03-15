@@ -49,3 +49,6 @@ black>=23.11.0
 # Utilities
 python-dotenv>=1.0.0
 tenacity>=8.2.3
+
+# Dashboard (optional — only needed to run tools/opsmemory/dashboard.py)
+streamlit>=1.35.0

@@ -19,10 +19,12 @@ OpsMemory is an always-on background agent that:
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────┐
-│                     FastAPI (port 8000)              │
-│  /ingest  /query  /consolidate  /memories  /sources  │
-└────────────────────┬─────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                     FastAPI (port 8000)                      │
+│  /ingest  /query  /consolidate  /memories  /evidence         │
+│  /sources  /status  DELETE /evidence/{id}  DELETE            │
+│  /memories/{id}  POST /clear                                 │
+└────────────────────┬─────────────────────────────────────────┘
                      │ async
           ┌──────────▼──────────┐
           │    Agent Runtime     │
@@ -45,10 +47,10 @@ OpsMemory is an always-on background agent that:
           │  sources                │
           └─────────────────────────┘
 
-          ┌──────────────────────────┐
-          │   GitHub Connector       │
-          │  (commits + PRs → /ingest│
-          └──────────────────────────┘
+          ┌──────────────────────────┐    ┌───────────────────────────┐
+          │   GitHub Connector       │    │   Streamlit Dashboard     │
+          │  (commits + PRs → /ingest│    │  dashboard.py (port 8501) │
+          └──────────────────────────┘    └───────────────────────────┘
 ```
 
 ---
@@ -85,6 +87,11 @@ curl "http://localhost:8000/query?q=What+was+deployed%3F"
 
 # 6. Trigger consolidation
 curl -X POST http://localhost:8000/consolidate
+
+# 7. Dashboard (optional — requires streamlit)
+cd ..
+streamlit run dashboard.py
+# Opens at http://localhost:8501
 ```
 
 ---
@@ -97,7 +104,7 @@ curl -X POST http://localhost:8000/consolidate
 | `DB_POOL_SIZE` | `10` | Connection pool size |
 | `DB_MAX_OVERFLOW` | `20` | Max extra connections above pool size |
 | `GITHUB_TOKEN` | _(none)_ | GitHub personal access token (for private repos / higher rate limits) |
-| `GITHUB_OWNER` | `EPdacoder05` | GitHub username to enumerate repositories for |
+| `GITHUB_OWNER` | _(resolved from token)_ | GitHub username or organisation to enumerate repositories for. If unset, the connector calls `GET /user` with the supplied token to resolve the authenticated identity automatically. |
 | `GITHUB_INCLUDE_REPOS` | _(all)_ | Comma-separated allowlist of repo names |
 | `GITHUB_EXCLUDE_REPOS` | _(none)_ | Comma-separated denylist of repo names |
 | `GITHUB_POLL_INTERVAL` | `3600` | Seconds between GitHub sweeps |
@@ -106,6 +113,21 @@ curl -X POST http://localhost:8000/consolidate
 ---
 
 ## API Reference
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/health` | GET | API liveness check |
+| `/ready` | GET | Returns 200 when the database is reachable |
+| `/ingest` | POST | Ingest new text evidence |
+| `/query` | GET | Semantic search over evidence + memories |
+| `/consolidate` | POST | Trigger a consolidation cycle |
+| `/status` | GET | Evidence and memory counts |
+| `/memories` | GET | List consolidated memory records |
+| `/memories/{id}` | DELETE | Delete a single memory record |
+| `/evidence` | GET | List raw evidence items |
+| `/evidence/{id}` | DELETE | Delete a single evidence item |
+| `/sources` | GET | List registered data sources |
+| `/clear` | POST | Delete all evidence and memories (full reset) |
 
 ### `GET /health`
 ```bash
@@ -123,7 +145,7 @@ curl -X POST http://localhost:8000/ingest \
   -d '{
     "text": "Merged PR #42: Add rate limiting",
     "source_type": "github_pr",
-    "source_ref": "https://github.com/EPdacoder05/myrepo/pull/42",
+    "source_ref": "https://github.com/your-org/myrepo/pull/42",
     "author": "alice"
   }'
 # {"evidence_id":"<uuid>","redacted":false,"correlation_id":"<uuid>"}
@@ -133,6 +155,12 @@ curl -X POST http://localhost:8000/ingest \
 ```bash
 curl -X POST http://localhost:8000/consolidate
 # {"run_id":"<uuid>","memories_created":3,"evidence_consolidated":27}
+```
+
+### `GET /status`
+```bash
+curl http://localhost:8000/status
+# {"evidence_total":42,"evidence_unconsolidated":15,"memories":5}
 ```
 
 ### `GET /query`
@@ -151,9 +179,21 @@ curl "http://localhost:8000/query?q=recent+deployments&limit=5"
 curl http://localhost:8000/memories
 ```
 
+### `DELETE /memories/{id}`
+```bash
+curl -X DELETE http://localhost:8000/memories/<uuid>
+# {"deleted":"<uuid>"}
+```
+
 ### `GET /evidence`
 ```bash
 curl http://localhost:8000/evidence
+```
+
+### `DELETE /evidence/{id}`
+```bash
+curl -X DELETE http://localhost:8000/evidence/<uuid>
+# {"deleted":"<uuid>"}
 ```
 
 ### `GET /sources`
@@ -161,16 +201,49 @@ curl http://localhost:8000/evidence
 curl http://localhost:8000/sources
 ```
 
+### `POST /clear`
+```bash
+curl -X POST http://localhost:8000/clear
+# {"evidence_deleted":42,"memories_deleted":5}
+```
+
+---
+
+## Streamlit Dashboard
+
+`dashboard.py` provides a point-and-click interface that connects to the running OpsMemory API.
+
+```bash
+# With the API already running on port 8000:
+streamlit run tools/opsmemory/dashboard.py
+# Opens at http://localhost:8501
+```
+
+The dashboard provides:
+
+| Feature | Description |
+|---|---|
+| 📊 Live stats | Evidence total / unconsolidated / memory count, refreshed each page load |
+| 📥 Ingest text | Paste any text and pick a source type |
+| 📎 Upload file | Upload `.txt` or `.json` files directly |
+| 🔍 Query | Natural-language search with expandable citation cards |
+| 🧠 Memories | Browse consolidated memory records; delete individual items |
+| 📋 Evidence | Browse raw evidence items; delete individual items |
+| 🔄 Consolidate | One-click consolidation trigger from the sidebar |
+| 🗑️ Clear all | Full reset from the sidebar (two-click confirmation) |
+
 ---
 
 ## GitHub Connector
 
 The GitHub connector (`connectors/github_connector.py`) runs a polling loop that:
 
-1. Lists all repositories for `GITHUB_OWNER`.
-2. Fetches recent commits and PRs for each repo.
-3. Normalises each item into structured text.
-4. POSTs to `OPSMEMORY_INGEST_URL`.
+1. Resolves the target owner (from `GITHUB_OWNER` or the authenticated token identity).
+2. Detects whether the owner is a personal account or organisation and picks the correct API endpoint.
+3. Lists repositories for the resolved owner.
+4. Fetches recent commits and PRs for each repo.
+5. Normalises each item into structured text.
+6. POSTs to `OPSMEMORY_INGEST_URL`.
 
 It uses exponential back-off retry (tenacity) on 429 / 5xx responses.
 
@@ -230,4 +303,10 @@ pytest tools/opsmemory/tests/ -v
 
 ## Repos Included by Default
 
-All public repositories owned by `EPdacoder05` are included by default. Use `GITHUB_INCLUDE_REPOS` or `GITHUB_EXCLUDE_REPOS` to restrict the set.
+All public repositories for the resolved owner are included by default.
+- If `GITHUB_OWNER` is set, that username or organisation is used directly.
+- If `GITHUB_OWNER` is unset, the connector resolves the owner from the authenticated `GITHUB_TOKEN` via `GET /user`.
+- Organisation owners are supported — the connector detects org accounts automatically and uses the `/orgs/{owner}/repos` endpoint.
+- Use `GITHUB_INCLUDE_REPOS` or `GITHUB_EXCLUDE_REPOS` to restrict the set.
+
+> **Security note:** Supply `GITHUB_TOKEN` and any other secrets via environment variables, a `.env` file (not committed to source control), or a secure secret store such as [GitHub Actions secrets](https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions). Never commit tokens or credentials to version control.

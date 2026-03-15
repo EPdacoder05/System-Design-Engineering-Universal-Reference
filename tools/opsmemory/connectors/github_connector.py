@@ -39,8 +39,8 @@ class GitHubConnectorConfig:
     github_token: Optional[str] = field(
         default_factory=lambda: os.environ.get("GITHUB_TOKEN")
     )
-    owner: str = field(
-        default_factory=lambda: os.environ.get("GITHUB_OWNER", "EPdacoder05")
+    owner: Optional[str] = field(
+        default_factory=lambda: os.environ.get("GITHUB_OWNER") or None
     )
     include_repos: List[str] = field(
         default_factory=lambda: [
@@ -85,11 +85,67 @@ class GitHubConnector:
             headers["Authorization"] = f"token {self.config.github_token}"
         return headers
 
+    async def resolve_owner(self) -> str:
+        """Resolve the GitHub owner to use for API requests.
+
+        Resolution order:
+        1. ``GITHUB_OWNER`` env var / ``config.owner`` if explicitly set.
+        2. Authenticated user login via ``GET /user`` when ``GITHUB_TOKEN`` is present.
+
+        Raises ``ValueError`` if neither source is available.
+        """
+        if self.config.owner:
+            return self.config.owner
+        if not self.config.github_token:
+            raise ValueError(
+                "Cannot resolve GitHub owner: set GITHUB_OWNER or provide a "
+                "GITHUB_TOKEN so the authenticated identity can be resolved automatically."
+            )
+        url = f"{self._github_api_url}/user"
+        async with httpx.AsyncClient(headers=self._headers, timeout=30) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            data: dict = response.json()
+        login: str = data.get("login", "")
+        if not login:
+            raise ValueError(
+                "GitHub /user API returned an empty login — cannot resolve owner."
+            )
+        return login
+
+    async def resolve_owner_type(self, owner: str) -> str:
+        """Return ``"Organization"`` if *owner* is a GitHub org, else ``"User"``.
+
+        Falls back to ``"User"`` if the lookup fails so downstream calls can
+        continue with a sensible default.
+        """
+        url = f"{self._github_api_url}/users/{owner}"
+        try:
+            async with httpx.AsyncClient(headers=self._headers, timeout=30) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                data: dict = response.json()
+            return data.get("type", "User")
+        except Exception as exc:
+            log.warning("github_owner_type_lookup_failed", owner=owner, error=str(exc))
+            return "User"
+
     @retry(**_retry_policy())
     async def list_repos(self) -> List[dict]:
-        """Return repositories owned by *owner*, applying include/exclude filters."""
-        url = f"{self._github_api_url}/users/{self.config.owner}/repos"
-        params = {"per_page": 100, "type": "owner"}
+        """Return repositories owned by *owner*, applying include/exclude filters.
+
+        Uses the ``/orgs/{owner}/repos`` endpoint for organisation owners and
+        ``/users/{owner}/repos`` for personal accounts.
+        """
+        owner = await self.resolve_owner()
+        owner_type = await self.resolve_owner_type(owner)
+        params: Dict[str, Any]
+        if owner_type == "Organization":
+            url = f"{self._github_api_url}/orgs/{owner}/repos"
+            params = {"per_page": 100, "type": "public"}
+        else:
+            url = f"{self._github_api_url}/users/{owner}/repos"
+            params = {"per_page": 100, "type": "owner"}
         async with httpx.AsyncClient(headers=self._headers, timeout=30) as client:
             response = await client.get(url, params=params)
             response.raise_for_status()
@@ -106,7 +162,8 @@ class GitHubConnector:
         self, repo_name: str, limit: int
     ) -> List[Dict[str, Any]]:
         """Fetch the *limit* most recent commits for *repo_name*."""
-        url = f"{self._github_api_url}/repos/{self.config.owner}/{repo_name}/commits"
+        owner = await self.resolve_owner()
+        url = f"{self._github_api_url}/repos/{owner}/{repo_name}/commits"
         params = {"per_page": limit}
         async with httpx.AsyncClient(headers=self._headers, timeout=30) as client:
             response = await client.get(url, params=params)
@@ -134,7 +191,8 @@ class GitHubConnector:
         self, repo_name: str, limit: int
     ) -> List[Dict[str, Any]]:
         """Fetch the *limit* most recently updated PRs for *repo_name*."""
-        url = f"{self._github_api_url}/repos/{self.config.owner}/{repo_name}/pulls"
+        owner = await self.resolve_owner()
+        url = f"{self._github_api_url}/repos/{owner}/{repo_name}/pulls"
         params = {
             "state": "all",
             "per_page": limit,
@@ -218,6 +276,7 @@ class GitHubConnector:
         """
         stats: Dict[str, Dict[str, int]] = {}
         try:
+            owner = await self.resolve_owner()
             repos = await self.list_repos()
         except Exception as exc:
             log.error("github_list_repos_failed", error=str(exc))
@@ -225,7 +284,7 @@ class GitHubConnector:
 
         for repo in repos:
             repo_name: str = repo["name"]
-            repo_full_name = f"{self.config.owner}/{repo_name}"
+            repo_full_name = f"{owner}/{repo_name}"
             repo_stats = {"commits": 0, "prs": 0}
 
             try:
@@ -274,9 +333,14 @@ class GitHubConnector:
 
     async def run_loop(self, session=None) -> None:
         """Run ``run_once`` on a repeating timer, logging stats each cycle."""
+        try:
+            owner = await self.resolve_owner()
+        except ValueError as exc:
+            log.error("github_connector_owner_unresolvable", error=str(exc))
+            return
         log.info(
             "github_connector_loop_started",
-            owner=self.config.owner,
+            owner=owner,
             poll_interval_seconds=self.config.poll_interval_seconds,
         )
         while True:
