@@ -57,3 +57,11 @@ tenacity>=8.2.3
 
 # Dashboard (optional — only needed to run tools/opsmemory/dashboard.py)
 streamlit>=1.35.0
+
+# Terminal UI (used by security/advanced_scanner.py and pentester/ tools)
+rich>=13.0.0           # Progress bars, tables, coloured output
+questionary>=1.10.0    # Arrow-key interactive menus
+
+# Network scanning (used by security/advanced_scanner.py — SYN/ICMP/FIN methods)
+# Requires root/admin for raw-socket scan methods; TCP/UDP work without privileges.
+scapy>=2.5.0
