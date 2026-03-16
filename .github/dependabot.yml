@@ -1,0 +1,49 @@
+# Dependabot configuration
+#
+# Automatically opens PRs to keep dependencies current.
+# Python pip updates cover litellm (BerriAI upstream) and all other packages
+# listed in requirements.txt.
+#
+# Docs: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+
+version: 2
+
+updates:
+  # -------------------------------------------------------------------------
+  # Python / pip — includes litellm (BerriAI/litellm on PyPI)
+  # -------------------------------------------------------------------------
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+    reviewers: []
+    ignore:
+      # Never accept major-version bumps automatically; those need human review.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # -------------------------------------------------------------------------
+  # GitHub Actions — keep workflow action versions current
+  # -------------------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(deps)"

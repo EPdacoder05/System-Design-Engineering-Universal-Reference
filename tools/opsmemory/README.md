@@ -282,6 +282,18 @@ OpsMemory uses a pluggable provider abstraction for LLM generation and embedding
 Providers are selected via environment variables — no code changes are needed to
 switch between Anthropic, OpenAI, Bedrock, or local backends.
 
+### LiteLLM upstream
+
+OpsMemory uses the **official [BerriAI/litellm](https://github.com/BerriAI/litellm)**
+package from PyPI.  This is the actively maintained upstream — never substitute a
+fork (e.g. `OpenHands/litellm` is thousands of commits behind the upstream and
+misses recent model support, bug fixes, and security patches).
+
+The minimum version is tracked in `requirements.txt`.  A daily GitHub Actions
+workflow (`.github/workflows/litellm-upstream-sync.yml`) detects new PyPI releases
+and automatically opens a pull request to bump the pin, so the reference repo stays
+current with BerriAI's latest without any manual intervention.
+
 ### SDK mode (default)
 
 LiteLLM is used in-process as the SDK.  Set the provider and model:
