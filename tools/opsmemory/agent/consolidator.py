@@ -1,8 +1,9 @@
 """Consolidation logic — batches evidence into memories on a timer."""
 
 import asyncio
+import os
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import structlog
@@ -28,12 +29,53 @@ class ConsolidationConfig:
 
 
 def generate_embedding(text: str, dim: int = 1536) -> List[float]:
-    """Generate a deterministic mock embedding vector.
+    """Generate an embedding vector for *text*.
 
-    NOTE: This is a mock implementation using seeded random numbers.
-    Replace with a call to a real embedding API (e.g. OpenAI
-    ``text-embedding-3-small``) before deploying to production.
+    Provider selection
+    ------------------
+    - When ``OPSMEMORY_EMBEDDING_PROVIDER`` is set to ``"litellm"`` (or another
+      real provider), this function delegates to the configured provider and
+      returns its embedding synchronously via ``asyncio.run``.
+    - In all other cases (default / ``"mock"``), a deterministic seeded
+      random vector is returned so that tests and local dev work without any
+      API credentials.
+
+    The *dim* parameter is honoured for the mock path.  Real providers return
+    vectors at their native dimension (see ``model_registry.yaml``); in that
+    case the *dim* argument is silently ignored.
     """
+    provider_name = os.environ.get("OPSMEMORY_EMBEDDING_PROVIDER", "mock").lower()
+
+    if provider_name != "mock":
+        try:
+            from tools.opsmemory.providers import get_embedding_provider
+
+            provider = get_embedding_provider(provider_name=provider_name)
+
+            async def _embed() -> List[float]:
+                return await provider.embed_as_list(text)
+
+            try:
+                # If we are inside a running event loop (async context), create
+                # a new thread to run the coroutine so we don't block the loop.
+                import concurrent.futures
+
+                loop = asyncio.get_running_loop()
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(asyncio.run, _embed())
+                    return future.result()
+            except RuntimeError:
+                # No running event loop — safe to use asyncio.run directly.
+                return asyncio.run(_embed())
+        except Exception as exc:
+            log.warning(
+                "generate_embedding_provider_failed_falling_back",
+                provider=provider_name,
+                error=str(exc),
+            )
+            # Fall through to deterministic mock on failure.
+
+    # Deterministic mock — no external calls.
     seed = abs(hash(text)) % (2**32)
     rng = np.random.default_rng(seed)
     return rng.random(dim).tolist()
