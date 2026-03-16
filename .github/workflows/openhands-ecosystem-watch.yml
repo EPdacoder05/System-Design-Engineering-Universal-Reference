@@ -1,0 +1,158 @@
+# OpenHands Ecosystem Watch
+#
+# Observes BerriAI/litellm (upstream) and OpenHands/litellm (ecosystem signal)
+# WITHOUT modifying runtime dependencies.
+#
+# Policy
+# ──────
+#   BerriAI/litellm  → dependency source  (handled by litellm-upstream-sync.yml)
+#   OpenHands/litellm → ecosystem observer (this workflow — read-only signals)
+#
+# This workflow NEVER modifies requirements.txt or source code automatically.
+# It collects signals and opens a GitHub Issue when something warrants review.
+#
+# Docs: tools/opsmemory/docs/ecosystem_tracking.md
+
+name: OpenHands Ecosystem Watch
+
+on:
+  schedule:
+    - cron: '0 7 * * 1'   # weekly — Monday 07:00 UTC (after litellm-upstream-sync)
+  workflow_dispatch:       # allow manual trigger
+
+permissions:
+  contents: write          # to commit updated ecosystem_signals.json
+  issues: write            # to open a review issue on notable changes
+  pull-requests: read
+
+jobs:
+  collect-signals:
+    name: Collect Ecosystem Signals
+    runs-on: ubuntu-latest
+
+    steps:
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # -----------------------------------------------------------------------
+      - name: Run signal collector
+        id: signals
+        run: |
+          python tools/opsmemory/scripts/check_openhands_signals.py \
+            --output tools/opsmemory/providers/ecosystem_signals.json \
+            --verbose
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Exit 1 = notable changes detected → workflow still continues
+        continue-on-error: true
+
+      # -----------------------------------------------------------------------
+      - name: Capture signal collector exit code
+        id: exitcode
+        run: |
+          # Re-run collector in report-only mode to get outputs without side-effects
+          python - <<'EOF'
+          import json, sys
+          from pathlib import Path
+          data = json.loads(Path("tools/opsmemory/providers/ecosystem_signals.json").read_text())
+          oh = data.get("openhands_fork", {})
+          behind = oh.get("commits_behind", "unknown")
+          tag    = data.get("litellm_upstream", {}).get("latest_release_tag", "unknown")
+          print(f"berri_tag={tag}")
+          print(f"oh_behind={behind}")
+          EOF
+
+          # Determine if notable changes were flagged (exit code from previous step)
+          echo "notable=${{ steps.signals.outcome == 'failure' && 'true' || 'false' }}" >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------------
+      - name: Commit updated ecosystem_signals.json
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore(ecosystem): refresh openhands ecosystem signals [skip ci]"
+          file_pattern: "tools/opsmemory/providers/ecosystem_signals.json"
+          commit_user_name: "github-actions[bot]"
+          commit_user_email: "github-actions[bot]@users.noreply.github.com"
+
+      # -----------------------------------------------------------------------
+      - name: Open review issue on notable changes
+        if: steps.exitcode.outputs.notable == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs   = require('fs');
+            const data = JSON.parse(
+              fs.readFileSync('tools/opsmemory/providers/ecosystem_signals.json', 'utf8')
+            );
+            const oh   = data.openhands_fork   || {};
+            const up   = data.litellm_upstream  || {};
+            const wf   = data.openhands_watched_files || {};
+
+            const changedFiles = Object.entries(wf)
+              .filter(([, v]) => v.sha && v.message)
+              .map(([f, v]) => `- \`${f}\` — ${v.message.slice(0, 100)}`)
+              .join('\n') || '_(no file-level changes detected)_';
+
+            const body = `## 🔭 OpenHands Ecosystem Signal — Review Requested
+
+            **Checked at:** ${data.last_checked_at}
+
+            | Signal | Value |
+            |--------|-------|
+            | BerriAI latest release | \`${up.latest_release_tag ?? 'unknown'}\` |
+            | OpenHands commits behind BerriAI | ${oh.commits_behind ?? 'unknown'} |
+            | OpenHands last pushed | ${oh.pushed_at ?? 'unknown'} |
+
+            ### Recently changed watched files (OpenHands fork)
+            ${changedFiles}
+
+            ### What to do
+            - [ ] Check \`tools/opsmemory/providers/ecosystem_signals.json\` for full details
+            - [ ] Review changed files for useful integration patterns
+            - [ ] Update \`tools/opsmemory/providers/model_registry.yaml\` if new models are relevant
+            - [ ] Close this issue once reviewed (no action needed is a valid outcome)
+
+            > **Reminder:** OpenHands/litellm is an **ecosystem signal only**.
+            > Never install packages from it. See \`tools/opsmemory/docs/ecosystem_tracking.md\`.
+
+            ---
+            *Automated by \`.github/workflows/openhands-ecosystem-watch.yml\`*`;
+
+            await github.rest.issues.create({
+              owner:  context.repo.owner,
+              repo:   context.repo.repo,
+              title:  `🔭 OpenHands ecosystem signal — review recommended (${new Date().toISOString().slice(0,10)})`,
+              body,
+              labels: ['ecosystem-signal', 'low-priority'],
+            });
+
+      # -----------------------------------------------------------------------
+      - name: Summary
+        run: |
+          echo "## 🔭 OpenHands Ecosystem Watch" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          python - <<'EOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          from pathlib import Path
+          d  = json.loads(Path("tools/opsmemory/providers/ecosystem_signals.json").read_text())
+          up = d.get("litellm_upstream", {})
+          oh = d.get("openhands_fork", {})
+          print(f"| Field | Value |")
+          print(f"|-------|-------|")
+          print(f"| BerriAI latest release | `{up.get('latest_release_tag','?')}` |")
+          print(f"| BerriAI main SHA | `{str(up.get('main_branch_sha','?'))[:12]}…` |")
+          print(f"| OpenHands head SHA | `{str(oh.get('head_sha','?'))[:12]}…` |")
+          print(f"| OpenHands commits behind | {oh.get('commits_behind','?')} |")
+          print(f"| OpenHands last pushed | {oh.get('pushed_at','?')} |")
+          print(f"")
+          print(f"Signals file: `tools/opsmemory/providers/ecosystem_signals.json`")
+          print(f"Policy docs: `tools/opsmemory/docs/ecosystem_tracking.md`")
+          EOF
