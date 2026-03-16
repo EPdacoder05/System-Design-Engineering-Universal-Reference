@@ -11,6 +11,7 @@
 # * Secrets are injected via environment variables or a .env file (not hardcoded).
 # * API key auth is ENABLED by default (OPSMEMORY_REQUIRE_API_KEY=true).
 # * The optional LiteLLM proxy service is disabled by default (profile=litellm).
+# * Container processes run as a non-root system user (appuser) — never as root.
 #
 # Usage
 # -----
