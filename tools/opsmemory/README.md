@@ -1,18 +1,27 @@
-# OpsMemory — Always-On Memory Agent
+# OpsMemory — AI Memory Platform Primitive
 
-> Persistent, searchable memory for your GitHub activity and operational events, backed by PostgreSQL + pgvector.
+> Provider-agnostic, persistent, searchable memory backed by PostgreSQL + pgvector.
+> Compatible with Claude / Anthropic, OpenAI, AWS Bedrock, and local backends via LiteLLM.
+> MCP-accessible via FastMCP.
 
 ---
 
 ## Overview
 
-OpsMemory is an always-on background agent that:
+OpsMemory is a reusable AI memory platform primitive that:
 
-1. **Ingests** evidence from any source (GitHub commits, PRs, manual text, files) via HTTP or an inbox directory.
+1. **Ingests** evidence from any source (GitHub commits, PRs, manual text, files) via HTTP, an inbox directory, or MCP tools.
 2. **Redacts** secrets automatically before anything reaches the database.
-3. **Embeds** each evidence item using a vector model (mock by default; plug in OpenAI or any other provider).
-4. **Consolidates** batches of evidence into higher-level Memory records on a configurable timer.
+3. **Embeds** each evidence item using a configurable embedding provider (mock by default; LiteLLM-backed for production).
+4. **Consolidates** batches of evidence into higher-level Memory records on a configurable timer, optionally using an LLM for summarisation.
 5. **Answers** natural-language queries using semantic search over the embedding store.
+6. **Exposes** all core operations as MCP tools via FastMCP — accessible from Claude Desktop, Cursor, and other MCP clients.
+
+OpsMemory is designed to be:
+- **Provider-agnostic** — swap LLM and embedding providers via environment config, not code changes.
+- **Cloud-modular** — compatible with Anthropic, OpenAI, AWS Bedrock, and OpenAI-compatible local backends.
+- **MCP-native** — all operations are available as structured MCP tools.
+- **PostgreSQL-backed** — pgvector is the only persistence layer; no SQLite.
 
 ---
 
@@ -20,6 +29,13 @@ OpsMemory is an always-on background agent that:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
+│                FastMCP Server (port 8100 / stdio)            │
+│  memory_ingest_text  memory_query  memory_status             │
+│  memory_consolidate  memory_list_sources                     │
+│  memory_sync_github_owner  memory_delete_*                   │
+└────────────────────┬─────────────────────────────────────────┘
+                     │ HTTP → OPSMEMORY_API_URL
+┌────────────────────▼─────────────────────────────────────────┐
 │                     FastAPI (port 8000)                      │
 │  /ingest  /query  /consolidate  /memories  /evidence         │
 │  /sources  /status  DELETE /evidence/{id}  DELETE            │
@@ -38,14 +54,19 @@ OpsMemory is an always-on background agent that:
           │  └──────┬────────┘  │
           └─────────┼───────────┘
                     │
-          ┌─────────▼───────────┐
-          │   PostgreSQL + pgvector │
-          │  evidence_items         │
-          │  evidence_embeddings    │
-          │  memories               │
-          │  consolidation_runs     │
-          │  sources                │
-          └─────────────────────────┘
+          ┌─────────▼───────────┐    ┌──────────────────────────┐
+          │   PostgreSQL + pgvector │  │   Provider Layer          │
+          │  evidence_items         │  │  providers/llm/           │
+          │  evidence_embeddings    │  │    base.py (abstract)     │
+          │  memories               │  │    litellm.py (SDK/proxy) │
+          │  consolidation_runs     │  │  providers/embeddings/    │
+          │  sources                │  │    base.py (abstract)     │
+          └─────────────────────────┘  │    litellm.py (SDK/proxy) │
+                                       │  providers/__init__.py    │
+                                       │    (factory / loader)     │
+                                       │  providers/model_registry │
+                                       │    .yaml                  │
+                                       └──────────────────────────┘
 
           ┌──────────────────────────┐    ┌───────────────────────────┐
           │   GitHub Connector       │    │   Streamlit Dashboard     │
@@ -71,24 +92,28 @@ OpsMemory is an always-on background agent that:
 # 1. Clone / enter the repo
 cd tools/opsmemory/docker
 
-# 2. Start Postgres + OpsMemory API
+# 2. Copy and configure environment variables
+cp tools/opsmemory/.env.example .env
+# Edit .env — set GITHUB_TOKEN, provider keys, etc.
+
+# 3. Start Postgres + OpsMemory API
 docker compose up -d
 
-# 3. Verify the API is healthy
+# 4. Verify the API is healthy
 curl http://localhost:8000/health
 
-# 4. Ingest some text
+# 5. Ingest some text
 curl -X POST http://localhost:8000/ingest \
   -H "Content-Type: application/json" \
   -d '{"text": "Deployed v2.3.1 to production at 14:00 UTC", "source_type": "manual"}'
 
-# 5. Query
+# 6. Query
 curl "http://localhost:8000/query?q=What+was+deployed%3F"
 
-# 6. Trigger consolidation
+# 7. Trigger consolidation
 curl -X POST http://localhost:8000/consolidate
 
-# 7. Dashboard (optional — requires streamlit)
+# 8. Dashboard (optional — requires streamlit)
 cd ..
 streamlit run dashboard.py
 # Opens at http://localhost:8501
@@ -109,6 +134,20 @@ streamlit run dashboard.py
 | `GITHUB_EXCLUDE_REPOS` | _(none)_ | Comma-separated denylist of repo names |
 | `GITHUB_POLL_INTERVAL` | `3600` | Seconds between GitHub sweeps |
 | `OPSMEMORY_INGEST_URL` | `http://localhost:8000/ingest` | Internal URL the GitHub connector POSTs to |
+| `OPSMEMORY_LLM_PROVIDER` | `mock` | LLM provider: `litellm` or `mock` |
+| `OPSMEMORY_LLM_MODEL` | `anthropic/claude-3-haiku-20240307` | LiteLLM-format LLM model string |
+| `OPSMEMORY_EMBEDDING_PROVIDER` | `mock` | Embedding provider: `litellm` or `mock` |
+| `OPSMEMORY_EMBEDDING_MODEL` | `openai/text-embedding-3-small` | LiteLLM-format embedding model string |
+| `OPSMEMORY_LITELLM_BASE_URL` | _(none)_ | Optional proxy/compatible endpoint base URL (enables proxy mode) |
+| `OPSMEMORY_LITELLM_API_KEY` | _(none)_ | Optional API key override forwarded to LiteLLM |
+| `OPSMEMORY_API_URL` | `http://localhost:8000` | Base URL used by the MCP server to reach the FastAPI service |
+| `ANTHROPIC_API_KEY` | _(none)_ | Anthropic API key (for Anthropic-direct models) |
+| `OPENAI_API_KEY` | _(none)_ | OpenAI API key |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | _(none)_ | AWS credentials for Bedrock (prefer IAM roles in production) |
+
+See `.env.example` for a complete annotated template.
+
+> **Security note:** Supply all secrets via environment variables, a `.env` file (not committed to source control), or a secure secret store such as [GitHub Actions secrets](https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions).  Never commit tokens or credentials to version control.
 
 ---
 
@@ -234,6 +273,129 @@ The dashboard provides:
 
 ---
 
+## Provider Layer
+
+OpsMemory uses a pluggable provider abstraction for LLM generation and embeddings.
+Providers are selected via environment variables — no code changes are needed to
+switch between Anthropic, OpenAI, Bedrock, or local backends.
+
+### SDK mode (default)
+
+LiteLLM is used in-process as the SDK.  Set the provider and model:
+
+```bash
+# Use Claude via Anthropic directly
+export OPSMEMORY_LLM_PROVIDER=litellm
+export OPSMEMORY_LLM_MODEL=anthropic/claude-3-haiku-20240307
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Use OpenAI embeddings
+export OPSMEMORY_EMBEDDING_PROVIDER=litellm
+export OPSMEMORY_EMBEDDING_MODEL=openai/text-embedding-3-small
+export OPENAI_API_KEY=sk-...
+```
+
+### Proxy mode (future / advanced)
+
+To route all LLM and embedding calls through a LiteLLM proxy or any OpenAI-compatible
+endpoint, set `OPSMEMORY_LITELLM_BASE_URL`:
+
+```bash
+export OPSMEMORY_LITELLM_BASE_URL=http://litellm-proxy:4000
+# No provider key needed — the proxy handles authentication.
+```
+
+Business logic and OpsMemory internals are unchanged in proxy mode.
+
+### Mock provider (dev / test)
+
+The default provider (`mock`) generates deterministic random embeddings and canned
+LLM responses with no external API calls.  Tests always use the mock provider.
+
+```bash
+# Explicit (also the default)
+export OPSMEMORY_EMBEDDING_PROVIDER=mock
+export OPSMEMORY_LLM_PROVIDER=mock
+```
+
+### Adding a new provider
+
+Create a subclass of `BaseLLMProvider` or `BaseEmbeddingProvider` in
+`providers/llm/` or `providers/embeddings/` respectively, then register it in
+`providers/__init__.py`.  No other files need to change.
+
+---
+
+## FastMCP Server
+
+OpsMemory exposes its full tool surface as MCP tools via FastMCP.
+
+### Available tools
+
+| Tool | Description |
+|---|---|
+| `memory_ingest_text` | Ingest free-form text evidence |
+| `memory_query` | Semantic search over evidence + memories |
+| `memory_status` | Return current store counts |
+| `memory_consolidate` | Trigger a consolidation cycle |
+| `memory_list_sources` | List registered data sources |
+| `memory_sync_github_owner` | Run a GitHub ingestion sweep |
+| `memory_delete_memory` | Delete a consolidated memory record by UUID |
+| `memory_delete_evidence` | Delete a raw evidence item by UUID |
+
+### Running the MCP server
+
+**stdio transport** (for Claude Desktop / Cursor / IDE integrations):
+
+```bash
+# Start the OpsMemory API first
+uvicorn tools.opsmemory.api.app:app --port 8000
+
+# Start the MCP server (stdio)
+python -m tools.opsmemory.mcp.server
+# or
+python tools/opsmemory/mcp/server.py
+```
+
+**SSE transport** (for debugging / HTTP-based clients):
+
+```bash
+python -m tools.opsmemory.mcp.server --transport sse --port 8100
+```
+
+### Claude Desktop configuration
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "opsmemory": {
+      "command": "python",
+      "args": ["-m", "tools.opsmemory.mcp.server"],
+      "env": {
+        "OPSMEMORY_API_URL": "http://localhost:8000"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Model Registry
+
+`providers/model_registry.yaml` tracks approved and experimental models with their
+capabilities (generation, embeddings, structured output, MCP-safe, production-approved).
+
+Validate the registry:
+
+```bash
+python tools/opsmemory/scripts/validate_model_registry.py
+```
+
+---
+
 ## GitHub Connector
 
 The GitHub connector (`connectors/github_connector.py`) runs a polling loop that:
@@ -271,7 +433,11 @@ EOF
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Start Postgres with pgvector (example via Docker)
+# 2. Copy and configure environment
+cp tools/opsmemory/.env.example .env
+# Edit .env with your credentials
+
+# 3. Start Postgres with pgvector (example via Docker)
 docker run -d \
   -e POSTGRES_USER=opsmemory \
   -e POSTGRES_PASSWORD=opsmemory \
@@ -279,13 +445,16 @@ docker run -d \
   -p 5432:5432 \
   pgvector/pgvector:pg16
 
-# 3. Run migrations
+# 4. Run migrations
 python tools/opsmemory/scripts/migrate.py
 
-# 4. Start the API
+# 5. Start the API
 uvicorn tools.opsmemory.api.app:app --reload --port 8000
 
-# 5. Run tests
+# 6. (Optional) Start the MCP server
+python -m tools.opsmemory.mcp.server
+
+# 7. Run tests
 pytest tools/opsmemory/tests/ -v
 ```
 
@@ -293,11 +462,12 @@ pytest tools/opsmemory/tests/ -v
 
 ## Production Notes
 
-- **Embedding model**: Replace `generate_embedding` in `agent/consolidator.py` with a real API call (e.g. `openai.embeddings.create`). Update `embedding_dim` in `ConsolidationConfig` to match.
+- **Embedding model**: Set `OPSMEMORY_EMBEDDING_PROVIDER=litellm` and `OPSMEMORY_EMBEDDING_MODEL` to your chosen model.  Update `embedding_dim` in `ConsolidationConfig` if the model uses a non-1536 dimension.
 - **ivfflat index**: The migration script creates an ivfflat index on `evidence_embeddings.embedding`. ivfflat requires data to already exist before the index can select centroids. For empty-table deployments, use `hnsw` instead, or run a separate re-index step after loading representative data.
 - **Secret redaction**: Patterns in `agent/redactor.py` cover common cases. Review and extend for your environment.
 - **Consolidation interval**: Default is 30 minutes (`ConsolidationConfig.interval_seconds=1800`). Tune via environment or code.
 - **Database pool**: Increase `DB_POOL_SIZE` and `DB_MAX_OVERFLOW` for high-throughput deployments.
+- **Secret management**: Use [GitHub Actions secrets](https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions), AWS Secrets Manager, or HashiCorp Vault for production credentials.  Never commit `.env` files or API keys to version control.
 
 ---
 

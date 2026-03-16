@@ -1,0 +1,193 @@
+# OpsMemory Model Capability Registry
+#
+# Tracks approved and experimental models for use with OpsMemory.
+# Fields:
+#   id               - LiteLLM-format model identifier
+#   provider         - Provider family (anthropic, openai, bedrock, cohere, local)
+#   release_date     - Optional ISO-8601 date (YYYY-MM-DD) when model was released
+#   supports_generation  - Can be used for LLM text generation
+#   supports_embeddings  - Can be used for vector embeddings
+#   supports_structured  - Supports structured / JSON output (tool calls)
+#   supports_rerank      - Supports reranking
+#   mcp_safe             - Safe to expose as an MCP-facing tool
+#   production_approved  - Approved for production workloads
+#   embedding_dim        - Embedding vector dimension (null for generation-only models)
+#   notes            - Free-text notes
+
+models:
+  # ---------------------------------------------------------------------------
+  # Anthropic / Claude — generation
+  # ---------------------------------------------------------------------------
+  - id: anthropic/claude-3-5-sonnet-20241022
+    provider: anthropic
+    release_date: "2024-10-22"
+    supports_generation: true
+    supports_embeddings: false
+    supports_structured: true
+    supports_rerank: false
+    mcp_safe: true
+    production_approved: true
+    embedding_dim: null
+    notes: "Claude 3.5 Sonnet — recommended production LLM for OpsMemory summarisation."
+
+  - id: anthropic/claude-3-haiku-20240307
+    provider: anthropic
+    release_date: "2024-03-07"
+    supports_generation: true
+    supports_embeddings: false
+    supports_structured: true
+    supports_rerank: false
+    mcp_safe: true
+    production_approved: true
+    embedding_dim: null
+    notes: "Claude 3 Haiku — fast and cost-effective; default LLM for OpsMemory."
+
+  - id: anthropic/claude-3-opus-20240229
+    provider: anthropic
+    release_date: "2024-02-29"
+    supports_generation: true
+    supports_embeddings: false
+    supports_structured: true
+    supports_rerank: false
+    mcp_safe: true
+    production_approved: true
+    embedding_dim: null
+    notes: "Claude 3 Opus — highest capability; use for complex consolidation tasks."
+
+  # ---------------------------------------------------------------------------
+  # Anthropic via AWS Bedrock
+  # ---------------------------------------------------------------------------
+  - id: bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0
+    provider: bedrock
+    release_date: "2024-10-22"
+    supports_generation: true
+    supports_embeddings: false
+    supports_structured: true
+    supports_rerank: false
+    mcp_safe: true
+    production_approved: true
+    embedding_dim: null
+    notes: "Claude 3.5 Sonnet via Bedrock — AWS-native deployment, no Anthropic key needed."
+
+  - id: bedrock/anthropic.claude-3-haiku-20240307-v1:0
+    provider: bedrock
+    release_date: "2024-03-07"
+    supports_generation: true
+    supports_embeddings: false
+    supports_structured: true
+    supports_rerank: false
+    mcp_safe: true
+    production_approved: true
+    embedding_dim: null
+    notes: "Claude 3 Haiku via Bedrock — cost-effective option on AWS."
+
+  # ---------------------------------------------------------------------------
+  # OpenAI — generation
+  # ---------------------------------------------------------------------------
+  - id: openai/gpt-4o
+    provider: openai
+    release_date: "2024-05-13"
+    supports_generation: true
+    supports_embeddings: false
+    supports_structured: true
+    supports_rerank: false
+    mcp_safe: true
+    production_approved: true
+    embedding_dim: null
+    notes: "GPT-4o — strong structured output support."
+
+  - id: openai/gpt-4o-mini
+    provider: openai
+    release_date: "2024-07-18"
+    supports_generation: true
+    supports_embeddings: false
+    supports_structured: true
+    supports_rerank: false
+    mcp_safe: true
+    production_approved: true
+    embedding_dim: null
+    notes: "GPT-4o Mini — cost-efficient option for lightweight summarisation."
+
+  # ---------------------------------------------------------------------------
+  # OpenAI — embeddings
+  # ---------------------------------------------------------------------------
+  - id: openai/text-embedding-3-small
+    provider: openai
+    release_date: "2024-01-25"
+    supports_generation: false
+    supports_embeddings: true
+    supports_structured: false
+    supports_rerank: false
+    mcp_safe: true
+    production_approved: true
+    embedding_dim: 1536
+    notes: "Default embedding model for OpsMemory. Balances cost and quality."
+
+  - id: openai/text-embedding-3-large
+    provider: openai
+    release_date: "2024-01-25"
+    supports_generation: false
+    supports_embeddings: true
+    supports_structured: false
+    supports_rerank: false
+    mcp_safe: true
+    production_approved: true
+    embedding_dim: 3072
+    notes: "Higher-quality embeddings; update pgvector column to 3072-dim."
+
+  - id: openai/text-embedding-ada-002
+    provider: openai
+    release_date: "2022-12-15"
+    supports_generation: false
+    supports_embeddings: true
+    supports_structured: false
+    supports_rerank: false
+    mcp_safe: true
+    production_approved: false
+    embedding_dim: 1536
+    notes: "Legacy model; prefer text-embedding-3-small for new deployments."
+
+  # ---------------------------------------------------------------------------
+  # AWS Bedrock — embeddings
+  # ---------------------------------------------------------------------------
+  - id: bedrock/amazon.titan-embed-text-v2:0
+    provider: bedrock
+    release_date: "2024-04-23"
+    supports_generation: false
+    supports_embeddings: true
+    supports_structured: false
+    supports_rerank: false
+    mcp_safe: true
+    production_approved: true
+    embedding_dim: 1024
+    notes: "Amazon Titan Embed v2 via Bedrock. Requires pgvector column at 1024-dim."
+
+  # ---------------------------------------------------------------------------
+  # Cohere — embeddings
+  # ---------------------------------------------------------------------------
+  - id: cohere/embed-english-v3.0
+    provider: cohere
+    release_date: "2023-11-02"
+    supports_generation: false
+    supports_embeddings: true
+    supports_structured: false
+    supports_rerank: false
+    mcp_safe: true
+    production_approved: false
+    embedding_dim: 1024
+    notes: "Experimental. Requires pgvector column at 1024-dim."
+
+  # ---------------------------------------------------------------------------
+  # Mock — development / test
+  # ---------------------------------------------------------------------------
+  - id: mock
+    provider: mock
+    release_date: null
+    supports_generation: true
+    supports_embeddings: true
+    supports_structured: false
+    supports_rerank: false
+    mcp_safe: false
+    production_approved: false
+    embedding_dim: 1536
+    notes: "Deterministic in-process mock. No API calls. Dev/test only."
