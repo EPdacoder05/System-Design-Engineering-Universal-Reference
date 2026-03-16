@@ -8,6 +8,10 @@ Apply to: Authorized security audits, penetration testing (with permission),
     have explicit written permission to test.  Unauthorised scanning may violate
     computer-fraud laws in your jurisdiction.
 
+    Before running any scan: document the target IP/range, date/time window,
+    and authorisation reference so you can demonstrate authorised access if
+    questioned. Never expand scope beyond what is documented.
+
 Features
 --------
 - Five scan methods: TCP Connect, SYN Stealth, ICMP Ping, UDP, FIN/NULL/Xmas
