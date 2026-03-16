@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tools.opsmemory.agent.consolidator import ConsolidationConfig, consolidate, generate_embedding
 from tools.opsmemory.agent.ingestor import IngestPayload, ingest_evidence
+from tools.opsmemory.auth import apply_auth_middleware
 from tools.opsmemory.storage.db import create_engine, get_settings, init_db
 from tools.opsmemory.storage.models import EvidenceItem
 from tools.opsmemory.storage.repository import (
@@ -47,6 +48,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="OpsMemory", version="1.0.0", lifespan=lifespan)
+
+# Register local-first auth middleware (no-op when OPSMEMORY_REQUIRE_API_KEY=false).
+apply_auth_middleware(app)
 
 # ---------------------------------------------------------------------------
 # Middleware

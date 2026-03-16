@@ -128,6 +128,9 @@ streamlit run dashboard.py
 | `DATABASE_URL` | `postgresql+asyncpg://opsmemory:opsmemory@localhost:5432/opsmemory` | SQLAlchemy async DSN |
 | `DB_POOL_SIZE` | `10` | Connection pool size |
 | `DB_MAX_OVERFLOW` | `20` | Max extra connections above pool size |
+| `OPSMEMORY_REQUIRE_API_KEY` | `false` | Set `true` to enable API key auth on all protected endpoints |
+| `OPSMEMORY_API_KEY` | _(none)_ | Bearer token clients must supply when auth is enabled |
+| `OPSMEMORY_MCP_TOKEN` | _(falls back to API_KEY)_ | Optional separate bearer token for MCP server callers |
 | `GITHUB_TOKEN` | _(none)_ | GitHub personal access token (for private repos / higher rate limits) |
 | `GITHUB_OWNER` | _(resolved from token)_ | GitHub username or organisation to enumerate repositories for. If unset, the connector calls `GET /user` with the supplied token to resolve the authenticated identity automatically. |
 | `GITHUB_INCLUDE_REPOS` | _(all)_ | Comma-separated allowlist of repo names |
@@ -381,9 +384,148 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
+## Local-First API Auth
+
+OpsMemory includes a lightweight, cloud-IdP-free authentication layer
+(`auth.py`) based on shared API keys supplied via environment variables.
+
+### Design principles
+
+- **No cloud IdP dependency** — no Okta, Auth0, Cognito, or Google Identity.
+- **Secure-by-default for exposed deployments** — the `docker-compose.secure.yml`
+  profile enables auth; the development profile leaves it off by default.
+- **Exempt paths** — `/health` and `/ready` are always accessible (for health
+  probes).
+
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `OPSMEMORY_REQUIRE_API_KEY` | `false` | Set `true` to enable auth on all protected endpoints |
+| `OPSMEMORY_API_KEY` | _(none)_ | Bearer token clients must supply |
+| `OPSMEMORY_MCP_TOKEN` | _(falls back to API_KEY)_ | Optional separate MCP token |
+
+### Generating a key
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Store the result in `.env` (never committed) or a secret manager.
+
+### Authenticated requests
+
+```bash
+curl -H "Authorization: Bearer <OPSMEMORY_API_KEY>" http://localhost:8000/status
+```
+
+### Enabling auth
+
+```bash
+# .env
+OPSMEMORY_REQUIRE_API_KEY=true
+OPSMEMORY_API_KEY=<generated-key>
+```
+
+Or use the hardened compose profile:
+
+```bash
+docker compose -f tools/opsmemory/docker/docker-compose.secure.yml up -d
+```
+
 ---
 
-## Model Registry
+## Integrations
+
+OpsMemory provides reusable scaffolding for downstream clients under
+`integrations/`.
+
+### Jarvis MCP Client
+
+`integrations/jarvis/` — generic adapter for calling OpsMemory tools from a
+Jarvis-style assistant or orchestrator.
+
+```python
+from tools.opsmemory.integrations.jarvis.mcp_client import OpsMemoryClient
+
+client = OpsMemoryClient()
+
+# Query memory before answering
+context = await client.query_memory("recent deployments", limit=5)
+
+# Ingest session outcome after task completion
+await client.ingest_session_outcome(
+    text="Deployed service-api v2.1 to staging.",
+    session_id="task-001",
+)
+```
+
+See `integrations/jarvis/README.md` and `.env.jarvis.example` for full
+configuration reference.
+
+### Media Pipeline Ingestion
+
+`integrations/media_pipeline/` — producer-side client for pushing normalised
+evidence from a media processing pipeline into OpsMemory.
+
+```python
+from tools.opsmemory.integrations.media_pipeline.client import MediaIngestionClient
+from tools.opsmemory.integrations.media_pipeline.models import TranscriptResult
+
+client = MediaIngestionClient()
+result = TranscriptResult(
+    text="Speaker A: Deployment completed.",
+    source_ref="media://recordings/standup.wav",
+    native_id="standup-001",
+    occurred_at="2026-03-15T09:00:00Z",
+)
+await client.ingest(result)
+```
+
+Supported evidence types: `TranscriptResult`, `OcrExtractionResult`,
+`MediaMetadataResult`, `EnrichmentResult`.  See
+`integrations/media_pipeline/README.md` and `.env.media.example`.
+
+---
+
+## Deployment
+
+### Development topology
+
+```bash
+docker compose -f tools/opsmemory/docker/docker-compose.yml up -d
+```
+
+- Auth disabled by default.
+- Postgres and API bound on all interfaces (`0.0.0.0`).
+- Suitable for local development only.
+
+### Secure local topology
+
+```bash
+# Copy and configure
+cp tools/opsmemory/.env.example .env
+# Set OPSMEMORY_API_KEY to a strong random value
+
+docker compose -f tools/opsmemory/docker/docker-compose.secure.yml up -d
+```
+
+- Auth **enabled** by default (`OPSMEMORY_REQUIRE_API_KEY=true`).
+- All services bound to `127.0.0.1` (loopback only).
+- Postgres on internal Docker network only (no host port).
+- Optional LiteLLM proxy (disabled by default; enable with `--profile litellm`).
+
+### Trust boundaries
+
+| Service | Exposure |
+|---------|---------|
+| `postgres` | Internal Docker network only — never expose publicly |
+| `opsmemory` | `127.0.0.1:8000` — add TLS reverse proxy for remote access |
+| `opsmemory-mcp` | `127.0.0.1:8100` — stdio mode preferred for local MCP clients |
+
+---
+
+
 
 `providers/model_registry.yaml` tracks approved and experimental models with their
 capabilities (generation, embeddings, structured output, MCP-safe, production-approved).

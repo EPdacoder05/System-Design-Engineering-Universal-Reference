@@ -1,0 +1,159 @@
+# OpsMemory — Secure Local Deployment
+#
+# This compose file demonstrates a hardened, self-hosted topology suitable for
+# deployments where the OpsMemory API and MCP server are NOT exposed on a
+# public network.
+#
+# Design principles
+# -----------------
+# * All services bind to localhost (127.0.0.1) by default — not 0.0.0.0.
+# * Inter-service communication uses the private Docker network (opsmemory_net).
+# * Secrets are injected via environment variables or a .env file (not hardcoded).
+# * API key auth is ENABLED by default (OPSMEMORY_REQUIRE_API_KEY=true).
+# * The optional LiteLLM proxy service is disabled by default (profile=litellm).
+#
+# Usage
+# -----
+#   cp tools/opsmemory/.env.example .env
+#   # Set OPSMEMORY_API_KEY to a strong random value, e.g.:
+#   #   python -c "import secrets; print(secrets.token_urlsafe(32))"
+#   docker compose -f tools/opsmemory/docker/docker-compose.secure.yml up -d
+#
+# To enable the optional LiteLLM proxy:
+#   docker compose -f tools/opsmemory/docker/docker-compose.secure.yml \
+#     --profile litellm up -d
+#
+# Trust boundaries
+# ----------------
+# * postgres    — internal only (no host port exposed in production)
+# * opsmemory   — bound to 127.0.0.1:8000 (API callers must be on same host)
+# * opsmemory-mcp — bound to 127.0.0.1:8100 (MCP clients must be on same host)
+# * litellm-proxy — bound to 127.0.0.1:4000 (disabled by default)
+#
+# For remote access, add a TLS-terminating reverse proxy (e.g. Caddy, nginx)
+# in front of the opsmemory service.  Never expose Postgres directly.
+
+version: "3.9"
+
+networks:
+  opsmemory_net:
+    driver: bridge
+    internal: true           # no outbound internet from containers on this net
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  pgdata_secure:
+  opsmemory_inbox:
+
+services:
+  # -------------------------------------------------------------------------
+  # PostgreSQL + pgvector
+  # -------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    networks:
+      - opsmemory_net
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-opsmemory}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opsmemory}
+      POSTGRES_DB: ${POSTGRES_DB:-opsmemory}
+    # No host port published — only reachable from opsmemory_net.
+    expose:
+      - "5432"
+    volumes:
+      - pgdata_secure:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opsmemory}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -------------------------------------------------------------------------
+  # OpsMemory FastAPI service
+  # -------------------------------------------------------------------------
+  opsmemory:
+    build:
+      context: ../..
+      dockerfile: tools/opsmemory/docker/Dockerfile
+    restart: unless-stopped
+    networks:
+      - opsmemory_net
+    # Bind to localhost only — not exposed to the broader network.
+    ports:
+      - "127.0.0.1:${OPSMEMORY_API_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: >-
+        postgresql+asyncpg://${POSTGRES_USER:-opsmemory}:${POSTGRES_PASSWORD:-opsmemory}@postgres:5432/${POSTGRES_DB:-opsmemory}
+      # Auth — API key required in this secure profile.
+      OPSMEMORY_REQUIRE_API_KEY: ${OPSMEMORY_REQUIRE_API_KEY:-true}
+      OPSMEMORY_API_KEY: ${OPSMEMORY_API_KEY:?OPSMEMORY_API_KEY must be set}
+      # GitHub connector (optional — omit if not using GitHub ingestion)
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_OWNER: ${GITHUB_OWNER:-}
+      OPSMEMORY_INGEST_URL: http://opsmemory:8000/ingest
+      # LLM / embedding provider
+      OPSMEMORY_LLM_PROVIDER: ${OPSMEMORY_LLM_PROVIDER:-mock}
+      OPSMEMORY_LLM_MODEL: ${OPSMEMORY_LLM_MODEL:-anthropic/claude-3-haiku-20240307}
+      OPSMEMORY_EMBEDDING_PROVIDER: ${OPSMEMORY_EMBEDDING_PROVIDER:-mock}
+      OPSMEMORY_EMBEDDING_MODEL: ${OPSMEMORY_EMBEDDING_MODEL:-openai/text-embedding-3-small}
+      # LiteLLM proxy (set to http://litellm-proxy:4000 when using the litellm profile)
+      OPSMEMORY_LITELLM_BASE_URL: ${OPSMEMORY_LITELLM_BASE_URL:-}
+      OPSMEMORY_LITELLM_API_KEY: ${OPSMEMORY_LITELLM_API_KEY:-}
+      # Provider API keys — set only the keys your chosen provider(s) need.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - opsmemory_inbox:/app/inbox
+
+  # -------------------------------------------------------------------------
+  # OpsMemory FastMCP server (SSE transport)
+  # Optional — only needed for HTTP-based MCP clients.
+  # For stdio MCP clients, run the server as a subprocess instead.
+  # -------------------------------------------------------------------------
+  opsmemory-mcp:
+    build:
+      context: ../..
+      dockerfile: tools/opsmemory/docker/Dockerfile
+    restart: unless-stopped
+    networks:
+      - opsmemory_net
+    # Bind MCP SSE server to localhost only.
+    ports:
+      - "127.0.0.1:${OPSMEMORY_MCP_PORT:-8100}:8100"
+    command: >
+      python -m tools.opsmemory.mcp.server --transport sse --port 8100
+    environment:
+      OPSMEMORY_API_URL: http://opsmemory:8000
+      OPSMEMORY_API_KEY: ${OPSMEMORY_API_KEY:?OPSMEMORY_API_KEY must be set}
+      OPSMEMORY_MCP_TOKEN: ${OPSMEMORY_MCP_TOKEN:-}
+    depends_on:
+      - opsmemory
+
+  # -------------------------------------------------------------------------
+  # LiteLLM Proxy (optional — disabled by default)
+  # Enable with: --profile litellm
+  # See https://docs.litellm.ai/docs/proxy/quick_start for config.
+  # -------------------------------------------------------------------------
+  litellm-proxy:
+    image: ghcr.io/berriai/litellm:main-latest
+    profiles:
+      - litellm
+    restart: unless-stopped
+    networks:
+      - opsmemory_net
+    ports:
+      - "127.0.0.1:${LITELLM_PORT:-4000}:4000"
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    # Mount a litellm config file if needed:
+    # volumes:
+    #   - ./litellm_config.yaml:/app/config.yaml
+    # command: ["--config", "/app/config.yaml", "--port", "4000"]
