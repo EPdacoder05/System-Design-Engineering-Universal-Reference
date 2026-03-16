@@ -338,6 +338,7 @@ OpsMemory exposes its full tool surface as MCP tools via FastMCP.
 | Tool | Description |
 |---|---|
 | `memory_ingest_text` | Ingest free-form text evidence |
+| `memory_ingest_repo` | Ingest all documentation files from a local repository tree |
 | `memory_query` | Semantic search over evidence + memories |
 | `memory_status` | Return current store counts |
 | `memory_consolidate` | Trigger a consolidation cycle |
@@ -535,6 +536,67 @@ Validate the registry:
 ```bash
 python tools/opsmemory/scripts/validate_model_registry.py
 ```
+
+---
+
+## Repository Connector
+
+The repository connector (`connectors/repo_connector.py`) seeds the OpsMemory
+knowledge store with every documentation and reference file in a local
+repository tree.  This is the primary mechanism for training OpsMemory on the
+best practices, architecture decisions, and security patterns documented in this
+repository so that AI agents can apply them when generating new services or
+reviewing existing ones.
+
+### How it works
+
+1. Walks the local repository starting from `repo_path`.
+2. Skips non-documentation subtrees (`.git`, `node_modules`, `__pycache__`, etc.).
+3. Reads every file whose extension is in `file_extensions` (default: `.md`,
+   `.txt`, `.yaml`, `.yml`, `.json`).
+4. Splits files larger than `_CHUNK_CHARS` into overlapping chunks so each POST
+   stays within the ingest endpoint's limits.
+5. POSTs each chunk to `OPSMEMORY_INGEST_URL` with `source_type="reference_doc"`
+   and a `source_ref` pointing to the file on GitHub.
+
+### MCP tool
+
+```python
+# Seed OpsMemory with the entire reference repository
+result = await memory_ingest_repo(
+    repo_path="/path/to/System-Design-Engineering-Universal-Reference",
+    repo="EPdacoder05/System-Design-Engineering-Universal-Reference",
+)
+# {"repo": "...", "files_ingested": 42, "chunks_posted": 55, "files_skipped": 1}
+```
+
+### Running standalone
+
+```bash
+python - <<'EOF'
+import asyncio
+from tools.opsmemory.connectors.repo_connector import RepoConnector, RepoConnectorConfig
+
+async def main():
+    config = RepoConnectorConfig(
+        repo_path=".",
+        repo="EPdacoder05/System-Design-Engineering-Universal-Reference",
+    )
+    connector = RepoConnector(config=config)
+    stats = await connector.run_once()
+    print(stats)
+
+asyncio.run(main())
+EOF
+```
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `REPO_PATH` | `.` | Local path to the repository root |
+| `REPO_NAME` | `EPdacoder05/System-Design-Engineering-Universal-Reference` | `owner/repo` used in evidence records |
+| `OPSMEMORY_INGEST_URL` | `http://localhost:8000/ingest` | OpsMemory ingest endpoint |
 
 ---
 
