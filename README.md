@@ -46,6 +46,7 @@ Patterns from this library power every project in the ecosystem.
 - [Configuration](#-configuration)
 - [Testing](#-testing)
 - [Engineering Tradeoffs](#-engineering-tradeoffs)
+- [Rolling Rubrics](#-rolling-rubrics)
 - [Performance & Operations](#-performance--operations)
 
 ---
@@ -453,6 +454,36 @@ Pytest fixtures, factories, and async testing patterns.
 - **ML:** Real-time vs Batch inference, Accuracy vs Latency, Simple models vs Deep learning
 
 Each tradeoff includes: Description, When to choose A, When to choose B, Real-world example, Cost implications
+
+---
+
+## 📈 Rolling Rubrics
+
+### [`rubrics/MASTER_RUBRIC.md`](rubrics/MASTER_RUBRIC.md)
+**Universal rolling scoring template**
+- ✅ Fixed dimensions: correctness, reliability, security, scalability, operability, cost, maintainability, clarity
+- ✅ Required rolling fields: what changed, why, impact, next experiment, deprecation notes
+- ✅ Required deltas: rubric score delta, risk delta, production readiness delta
+- ✅ Versioned governance for compounding improvements
+
+### [`rubrics/ROLLING_UPDATE_LOG.md`](rubrics/ROLLING_UPDATE_LOG.md)
+**Standardized rolling update log**
+- ✅ Change entry template with required rubric and risk deltas
+- ✅ Validation and known limitation capture
+- ✅ Source/signal notes for dynamic updates
+
+### [`rubrics/SECURITY/OIDC_OAUTH2_QUICKREF.md`](rubrics/SECURITY/OIDC_OAUTH2_QUICKREF.md)
+**P0 identity/auth quick reference**
+- ✅ Canonical OIDC vs OAuth2 clarification
+- ✅ Decision rule for OAuth2-only vs OIDC+OAuth2
+- ✅ Minimum checks: PKCE, `iss`, `aud`, token/key rotation, least-privilege scopes, signature verification
+
+### [`rubrics/CHECKLISTS/`](rubrics/CHECKLISTS/)
+**Domain checklists wired to master rubric version**
+- ✅ SWE checklist
+- ✅ DevOps checklist
+- ✅ CS fundamentals checklist
+- ✅ System design checklist
 
 ---
 
