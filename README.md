@@ -576,6 +576,9 @@ pip install fastapi sqlalchemy redis scikit-learn
 
 ## 🔒 Security
 
+### Cybersecurity Guardrails
+For a defense-first cybersecurity playbook, see [`CYBERSEC_GUARDRAILS.md`](CYBERSEC_GUARDRAILS.md)
+
 ### Docker Security
 For production-ready Docker hardening patterns, see [`docker/DOCKER_SECURITY.md`](docker/DOCKER_SECURITY.md)
 
