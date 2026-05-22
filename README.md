@@ -578,6 +578,7 @@ pip install fastapi sqlalchemy redis scikit-learn
 
 ### Cybersecurity Guardrails
 For a defense-first cybersecurity playbook, see [`CYBERSEC_GUARDRAILS.md`](CYBERSEC_GUARDRAILS.md)
+- Includes an authorized-learning reference to `LuanMattos/ethical-hacking` with strict legal-use boundaries
 
 ### Docker Security
 For production-ready Docker hardening patterns, see [`docker/DOCKER_SECURITY.md`](docker/DOCKER_SECURITY.md)

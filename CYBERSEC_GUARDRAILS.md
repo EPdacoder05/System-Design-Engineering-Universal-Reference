@@ -74,6 +74,19 @@ Always require:
 - OIDC/OAuth2 quick reference: `rubrics/SECURITY/OIDC_OAUTH2_QUICKREF.md`
 - Docker hardening: `docker/DOCKER_SECURITY.md`
 
+## External Learning Reference (Authorized Use Only)
+- Ethical Hacking study repo: https://github.com/LuanMattos/ethical-hacking
+
+Use this only for:
+- Defensive learning in isolated labs
+- Authorized red/blue team training
+- Security awareness and control validation
+
+Do not use it for:
+- Unauthorized scanning or access
+- Persistence/backdoor deployment outside explicit legal scope
+- Any offensive or malicious activity
+
 ## Rolling Improvement Requirement
 Every significant security change should update:
 - What changed
