@@ -352,3 +352,52 @@ def test_model_registry_embedding_models_have_dim():
             assert model.get("embedding_dim"), (
                 f"Model {model['id']} supports_embeddings=True but has no embedding_dim"
             )
+
+
+# ---------------------------------------------------------------------------
+# litellm dependency — upstream source and version pin hygiene
+# ---------------------------------------------------------------------------
+
+
+def test_litellm_is_declared_in_requirements():
+    """litellm must be explicitly declared in requirements.txt.
+
+    This guards against accidentally dropping the dependency and ensures we
+    always ship from BerriAI's PyPI package rather than any fork.
+    """
+    from pathlib import Path
+
+    repo_root = Path(__file__).parent.parent.parent.parent
+    req_path = repo_root / "requirements.txt"
+    assert req_path.exists(), f"requirements.txt not found at {req_path}"
+
+    content = req_path.read_text()
+    # Must contain a litellm line with a version pin
+    import re
+
+    match = re.search(r"^litellm>=(\d+\.\d+[\.\d]*)", content, re.MULTILINE)
+    assert match, (
+        "litellm not found (or not version-pinned with >=) in requirements.txt. "
+        "Add 'litellm>=<version>' sourced from BerriAI/litellm on PyPI."
+    )
+
+
+def test_litellm_pin_is_at_least_version_1():
+    """The litellm pin in requirements.txt must be >= 1.0.0 (BerriAI stable era)."""
+    from pathlib import Path
+    import re
+
+    repo_root = Path(__file__).parent.parent.parent.parent
+    req_path = repo_root / "requirements.txt"
+    content = req_path.read_text()
+
+    match = re.search(r"^litellm>=(\d+\.\d+[\.\d]*)", content, re.MULTILINE)
+    assert match, "litellm pin not found in requirements.txt"
+
+    from packaging.version import Version
+
+    pinned = Version(match.group(1))
+    assert pinned >= Version("1.0.0"), (
+        f"litellm pin {pinned} is below 1.0.0. "
+        "Use a BerriAI 1.x release — pre-1.0 versions predate the stable API."
+    )

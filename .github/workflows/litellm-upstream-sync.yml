@@ -1,0 +1,163 @@
+# litellm Upstream Sync
+#
+# Tracks new releases of BerriAI/litellm on PyPI and automatically opens a
+# pull request when a newer version is available.
+#
+# Why BerriAI/litellm?
+#   The OpenHands fork (OpenHands/litellm) is thousands of commits behind the
+#   upstream.  This project always uses the official BerriAI PyPI package so
+#   that it benefits from the latest model support, bug fixes, and security
+#   patches the moment they ship.
+#
+# How it works:
+#   1. Query PyPI JSON API for the latest published litellm version.
+#   2. Parse the current minimum version from requirements.txt.
+#   3. If a newer version is available, update the pin in requirements.txt
+#      and open a pull request with a summary and link to the release.
+#
+# Triggers:
+#   - Daily at 06:00 UTC (cron)
+#   - Manual via workflow_dispatch
+
+name: litellm Upstream Sync (BerriAI)
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # daily at 06:00 UTC
+  workflow_dispatch:       # allow manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Check & Update litellm Version
+    runs-on: ubuntu-latest
+
+    steps:
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # -----------------------------------------------------------------------
+      - name: Fetch latest litellm version from PyPI
+        id: pypi
+        run: |
+          LATEST=$(python - <<'EOF'
+          import urllib.request, json, sys
+          url = "https://pypi.org/pypi/litellm/json"
+          with urllib.request.urlopen(url, timeout=15) as resp:
+              data = json.loads(resp.read())
+          print(data["info"]["version"])
+          EOF
+          )
+          echo "latest=${LATEST}" >> "$GITHUB_OUTPUT"
+          echo "PyPI latest: ${LATEST}"
+
+      # -----------------------------------------------------------------------
+      - name: Parse current pinned version from requirements.txt
+        id: current
+        run: |
+          # Extract the version number from a line like: litellm>=1.56.0
+          CURRENT=$(grep -oP '(?<=litellm>=)[\d.]+' requirements.txt || echo "0.0.0")
+          echo "current=${CURRENT}" >> "$GITHUB_OUTPUT"
+          echo "Current pin: ${CURRENT}"
+
+      # -----------------------------------------------------------------------
+      - name: Compare versions
+        id: compare
+        run: |
+          python - <<'EOF'
+          import os
+          from packaging.version import Version
+
+          latest  = os.environ["LATEST"]
+          current = os.environ["CURRENT"]
+
+          if Version(latest) > Version(current):
+              print(f"New version available: {current} → {latest}")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                  fh.write("needs_update=true\n")
+          else:
+              print(f"Already up-to-date: {current}")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                  fh.write("needs_update=false\n")
+          EOF
+        env:
+          LATEST:  ${{ steps.pypi.outputs.latest }}
+          CURRENT: ${{ steps.current.outputs.current }}
+
+      # -----------------------------------------------------------------------
+      - name: Install packaging (for version comparison)
+        if: steps.compare.outputs.needs_update == 'true'
+        run: pip install packaging --quiet
+
+      # -----------------------------------------------------------------------
+      - name: Update requirements.txt
+        if: steps.compare.outputs.needs_update == 'true'
+        run: |
+          LATEST="${{ steps.pypi.outputs.latest }}"
+          CURRENT="${{ steps.current.outputs.current }}"
+
+          # Replace the pinned version in-place
+          sed -i "s/litellm>=${CURRENT}/litellm>=${LATEST}/" requirements.txt
+
+          # Verify the substitution
+          grep litellm requirements.txt
+
+      # -----------------------------------------------------------------------
+      - name: Create Pull Request
+        if: steps.compare.outputs.needs_update == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: "auto/litellm-${{ steps.pypi.outputs.latest }}"
+          delete-branch: true
+          commit-message: |
+            chore(deps): bump litellm ${{ steps.current.outputs.current }} → ${{ steps.pypi.outputs.latest }}
+
+            Upstream: https://github.com/BerriAI/litellm/releases/tag/v${{ steps.pypi.outputs.latest }}
+          title: "chore(deps): bump litellm `${{ steps.current.outputs.current }}` → `${{ steps.pypi.outputs.latest }}`"
+          body: |
+            ## litellm upstream update
+
+            | | Version |
+            |---|---|
+            | **Current pin** | `${{ steps.current.outputs.current }}` |
+            | **Latest (BerriAI)** | `${{ steps.pypi.outputs.latest }}` |
+
+            ### Why BerriAI, not a fork?
+            This repository always tracks the **official upstream** `BerriAI/litellm`
+            published on PyPI.  Fork-based alternatives (e.g. `OpenHands/litellm`) can
+            lag thousands of commits behind and miss new model support, bug fixes, and
+            security patches.
+
+            ### What changed?
+            - [Release notes](https://github.com/BerriAI/litellm/releases/tag/v${{ steps.pypi.outputs.latest }})
+            - [Full changelog](https://github.com/BerriAI/litellm/blob/main/CHANGELOG.md)
+
+            ### Review checklist
+            - [ ] Scan release notes for breaking API changes
+            - [ ] Run `pytest tools/opsmemory/tests/test_providers.py` locally
+            - [ ] Verify provider adapters (`providers/llm/litellm.py`, `providers/embeddings/litellm.py`)
+            - [ ] Approve and merge when satisfied
+
+            ---
+            *Automated by `.github/workflows/litellm-upstream-sync.yml`*
+          labels: |
+            dependencies
+            python
+            litellm
+
+      # -----------------------------------------------------------------------
+      - name: Log no-op
+        if: steps.compare.outputs.needs_update == 'false'
+        run: |
+          echo "litellm is already at the latest version (${{ steps.current.outputs.current }}). Nothing to do."

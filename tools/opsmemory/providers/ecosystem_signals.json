@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.1",
+  "last_checked_at": "2026-03-16T00:00:00+00:00",
+  "policy": {
+    "berri_role": "upstream dependency source of truth — PyPI package source",
+    "openhands_role": "ecosystem signal / integration pattern observer — NOT a runtime dependency source"
+  },
+  "litellm_upstream": {
+    "_note": "Populated by .github/workflows/openhands-ecosystem-watch.yml",
+    "latest_release_tag": null,
+    "latest_release_date": null,
+    "release_url": "https://github.com/BerriAI/litellm/releases/latest",
+    "main_branch_sha": null,
+    "main_branch_updated": null
+  },
+  "openhands_fork": {
+    "_note": "Observed for signals only — not used as a package source",
+    "head_sha": null,
+    "last_updated": null,
+    "pushed_at": null,
+    "open_issues_count": null,
+    "fork_of": "BerriAI/litellm",
+    "role": "ecosystem_signal_only",
+    "commits_behind": null,
+    "commits_ahead": null
+  },
+  "openhands_watched_files": {
+    "_note": "Recent activity in files relevant to OpsMemory integration patterns",
+    "litellm/__init__.py": {},
+    "litellm/main.py": {},
+    "litellm/router.py": {},
+    "litellm/utils.py": {},
+    "model_prices_and_context_window.json": {},
+    "litellm/integrations/": {}
+  }
+}

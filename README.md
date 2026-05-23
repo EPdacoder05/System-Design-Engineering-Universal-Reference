@@ -47,6 +47,7 @@ Patterns from this library power every project in the ecosystem.
 - [Testing](#-testing)
 - [Engineering Tradeoffs](#-engineering-tradeoffs)
 - [Performance & Operations](#-performance--operations)
+- [Pentester — Ethical Hacking Reference](#-pentester--ethical-hacking-reference)
 
 ---
 
@@ -581,3 +582,48 @@ This is a reference library — customize it for your needs. No contributions ne
 ---
 
 **Built for engineers, by engineers. Ship faster. Ship better.**
+
+---
+
+## 🔐 Pentester — Ethical Hacking Reference
+
+> ⚠️ **LEGAL NOTICE**: All offensive-security tools are for **authorised use in
+> isolated lab environments only** (VMs you own, test networks, CTF challenges).
+> See [`pentester/README.md`](pentester/README.md) for full legal notice.
+
+A reference toolkit for cybersecurity professionals, students, and red/blue/purple
+teamers — covering the offensive mindset alongside the defensive patterns in
+`security/`.
+
+### [`pentester/`](pentester/)
+**Red-team / ethical hacking reference — lab use only**
+- ✅ **Advanced Port Scanner** — `advancedscanner.py` (TCP/SYN/ICMP/UDP/FIN, presets, Rich UI)
+- ✅ **Backdoor & Listener** — reverse shell pattern for detection-rule building
+- ✅ **ARP Spoofing** — MITM via gratuitous ARP (scapy, lab VMs)
+- ✅ **Hasher** — MD5, SHA-1, SHA-224, SHA-256, SHA-512 in one tool
+- ✅ **CVE Notes** — vsftpd 2.3.4 (CVE-2011-2523) analysis + Metasploit walkthrough
+- ✅ **Wi-Fi Notes** — WPA handshake capture guide (aircrack-ng)
+
+### [`security/advanced_scanner.py`](security/advanced_scanner.py)
+**Multi-method port scanner — 5 scan methods, 11 presets, Rich UI**
+
+```bash
+python advancedscanner.py -H 192.168.1.1 -x web          # web preset
+python advancedscanner.py -H 192.168.1.1 -p 22,80,443 -M syn  # SYN stealth
+python advancedscanner.py -i                               # interactive mode
+python advancedscanner.py --list                           # show all presets
+```
+
+| Method | Flag | Privilege | Notes |
+|--------|------|-----------|-------|
+| TCP Connect | `-M tcp` | None | Default; full 3-way handshake |
+| SYN Stealth | `-M syn` | Admin/Root | Half-open; auto-fallback to TCP |
+| ICMP Ping | `-M icmp` | Admin/Root | Host discovery |
+| UDP Scan | `-M udp` | None | Connectionless |
+| FIN/NULL/Xmas | `-M fin` | Admin/Root | Stealth flags; auto-fallback |
+
+**Presets:** `web` · `ssh` · `database` · `mail` · `dns` · `directory` ·
+`monitoring` · `ntp` · `vpn` · `common` · `all`
+
+**Apply to:** Authorised network audits, CTF challenges, service discovery,
+lab infrastructure assessment, building detection signatures for blue teams.
