@@ -6,6 +6,7 @@ client (Claude Desktop, Cursor, IDE extensions, etc.).
 Tools registered
 ----------------
 - ``memory_ingest_text``       – ingest free-form text evidence
+- ``memory_ingest_repo``       – ingest all docs from a local repository tree
 - ``memory_query``             – semantic search over evidence + memories
 - ``memory_status``            – current store counts
 - ``memory_consolidate``       – trigger a consolidation cycle
@@ -51,6 +52,7 @@ from tools.opsmemory.mcp.tools.admin import (
 from tools.opsmemory.mcp.tools.github import memory_sync_github_owner
 from tools.opsmemory.mcp.tools.ingest import memory_ingest_text
 from tools.opsmemory.mcp.tools.query import memory_query
+from tools.opsmemory.mcp.tools.repo import memory_ingest_repo
 
 # ---------------------------------------------------------------------------
 # Server instantiation
@@ -70,6 +72,7 @@ mcp = FastMCP(
 # ---------------------------------------------------------------------------
 
 mcp.tool()(memory_ingest_text)
+mcp.tool()(memory_ingest_repo)
 mcp.tool()(memory_query)
 mcp.tool()(memory_status)
 mcp.tool()(memory_consolidate)
