@@ -226,7 +226,7 @@ class TestCarrierRecord:
         with pytest.raises(ValueError, match="insurer_id"):
             CarrierRecord(carrier_id="x-001", canonical_name="X", insurer_id="")
 
-    def test_round_trip_serialisation(self):
+    def test_round_trip_serialization(self):
         rec = CarrierRecord(
             carrier_id="prog-001",
             canonical_name="Progressive",

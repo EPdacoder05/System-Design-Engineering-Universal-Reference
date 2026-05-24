@@ -360,11 +360,15 @@ class AuditTrail:
         for entry in self._entries:
             check = dict(entry)
             stored_hash = check.pop("hash")
+            # Verify chain linkage: each entry's prev_hash must equal the
+            # hash of the preceding entry (or "genesis" for the first).
+            if check.get("prev_hash") != prev:
+                return False
             entry_json = json.dumps(check, sort_keys=True, separators=(",", ":"))
             expected = hashlib.sha256(entry_json.encode()).hexdigest()
             if expected != stored_hash:
                 return False
-            prev = stored_hash  # noqa: F841
+            prev = stored_hash
         return True
 
     @property

@@ -87,8 +87,7 @@ jobs:
         FILES=$(find . -name "*.py" \
           -not -path "./.git/*" \
           -not -path "./venv/*" \
-          -not -path "./.venv/*" \
-          | head -200)
+          -not -path "./.venv/*")
         if [ -z "$FILES" ]; then
           echo "No Python files found."
           exit 0
@@ -96,11 +95,9 @@ jobs:
         pylint $FILES \
           --output-format=colorized \
           --fail-under=${{ env.PYLINT_MIN_SCORE }} \
-          --disable=C0114,C0115,C0116 \
-          || true
-      # Note: `|| true` prevents a pylint score below threshold from blocking
-      # the pipeline until the codebase reaches a stable baseline.
-      # Remove `|| true` once the score consistently meets PYLINT_MIN_SCORE.
+          --disable=C0114,C0115,C0116
+      # Note: `continue-on-error: true` keeps the pipeline green while teams
+      # triage findings.  Remove it once the score consistently meets PYLINT_MIN_SCORE.
       continue-on-error: true
 
   typecheck:
