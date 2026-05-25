@@ -63,7 +63,7 @@ async def get_current_user(
     token = credentials.credentials
     # Replace with your JWT library (python-jose, PyJWT, etc.)
     # Example stub – validate signature and expiry in production:
-    if not token.startswith("Bearer-"):  # placeholder check
+    if not token:  # placeholder check — real impl verifies signature + expiry
         raise HTTPException(status_code=401, detail="Invalid token")
     return {"sub": "user-123", "roles": ["viewer"], "tenant_id": "tenant-abc"}
 

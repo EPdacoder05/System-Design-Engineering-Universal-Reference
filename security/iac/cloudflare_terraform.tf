@@ -31,6 +31,10 @@ terraform {
       source  = "cloudflare/cloudflare"
       version = "~> 4.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 
   # Remote state — replace with your backend
@@ -633,10 +637,16 @@ resource "cloudflare_record" "dmarc" {
 # Cloudflare Tunnel (private origin, no public IP required)
 # ============================================================================
 
+resource "random_password" "tunnel_secret" {
+  length  = 32
+  special = false
+  # Result is stored in Terraform state — use remote state encryption (S3 SSE or Vault)
+}
+
 resource "cloudflare_tunnel" "origin_tunnel" {
   account_id = var.account_id
   name       = "${var.domain}-${var.environment}-tunnel"
-  secret     = base64encode(random_bytes(32))  # store in secrets manager; never commit
+  secret     = base64encode(random_password.tunnel_secret.result)  # store in secrets manager; never commit
 }
 
 resource "cloudflare_tunnel_config" "origin_config" {
