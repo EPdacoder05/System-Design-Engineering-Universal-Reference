@@ -89,7 +89,7 @@ async def test_ingest_is_idempotent(tmp_path):
     from tools.jarvis.mcp.tools.ingest import jarvis_ingest
 
     vault = _make_vault(tmp_path)
-    raw_file = _write_raw(vault, "ssd_transfers", "transfer_002.json", {
+    _write_raw(vault, "ssd_transfers", "transfer_002.json", {
         "timestamp": "2026-05-24T03:00:00Z",
         "file_count": 10,
     })

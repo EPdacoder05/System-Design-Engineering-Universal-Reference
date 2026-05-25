@@ -52,6 +52,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import httpx
 import pytest
+import pytest_asyncio
 from faker import Faker
 
 # =============================================================================
@@ -228,7 +229,7 @@ def product_factory(faker_instance: Faker) -> ProductFactory:
 # =============================================================================
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def async_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     """
     Async fixture for HTTP client.
@@ -239,7 +240,7 @@ async def async_client() -> AsyncGenerator[httpx.AsyncClient, None]:
         yield client
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def async_db_session():
     """
     Async database session with automatic rollback.
@@ -378,7 +379,7 @@ def mock_database():
     db.clear()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def mock_async_api_client():
     """
     Async mock for external API client.

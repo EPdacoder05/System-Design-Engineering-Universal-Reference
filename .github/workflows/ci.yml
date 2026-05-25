@@ -41,6 +41,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -49,8 +51,32 @@ jobs:
       - name: Install ruff
         run: pip install ruff
 
+      - name: Determine Python lint targets
+        id: lint-targets
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            FILES="$(git diff --name-only \
+              "${{ github.event.pull_request.base.sha }}" \
+              "${{ github.event.pull_request.head.sha }}" -- '*.py')"
+          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            FILES="$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" -- '*.py')"
+          else
+            FILES="$(git ls-files '*.py')"
+          fi
+
+          FILES="$(echo "$FILES" | tr '\n' ' ' | xargs || true)"
+          echo "files=$FILES" >> "$GITHUB_OUTPUT"
+
       - name: ruff check
-        run: ruff check . --output-format=github
+        shell: bash
+        run: |
+          if [ -z "${{ steps.lint-targets.outputs.files }}" ]; then
+            echo "No Python changes detected; skipping lint."
+            exit 0
+          fi
+
+          ruff check ${{ steps.lint-targets.outputs.files }} --output-format=github
 
 # ============================================================================
 # typecheck — mypy
