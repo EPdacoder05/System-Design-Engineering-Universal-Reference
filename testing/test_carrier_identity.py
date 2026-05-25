@@ -15,7 +15,6 @@ Run with:
 """
 
 import threading
-import time
 
 import pytest
 
@@ -26,14 +25,11 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api.carrier_identity import (
-    ACCEPT_THRESHOLD,
-    REVIEW_THRESHOLD,
     AuditTrail,
     CarrierCatalog,
     CarrierInputError,
     CarrierRecord,
     Disposition,
-    MatchResult,
     ReviewItem,
     ReviewQueue,
     _sanitize_carrier_input,
