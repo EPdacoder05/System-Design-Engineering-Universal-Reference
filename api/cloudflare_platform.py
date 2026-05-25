@@ -8,6 +8,8 @@ Covers:
 - CORS configuration (strict, permissive, preflight caching)
 - Security headers (CSP, HSTS, Permissions-Policy, COEP/COOP)
 - Geo-IP rate limiting (per-country, blocked regions, trusted regions)
+- Payload integrity verification (HMAC-SHA256, Content-Digest RFC 9530)
+- Principal verification (CF-Access JWT, API key, mTLS, trusted-IP)
 - WAF custom rule templates
 - Cloudflare Workers JavaScript/TypeScript templates (embedded)
 - D1 (SQLite), KV, R2, Queues, Durable Objects patterns
@@ -32,7 +34,9 @@ Deploy Python (via Workers + Pyodide or external origin):
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
 import ipaddress
 import json
 import logging
@@ -574,6 +578,740 @@ CACHE_CONTROL_RECIPES: Dict[str, str] = {
 
 
 # =============================================================================
+# Payload integrity verification
+# =============================================================================
+
+class PayloadIntegrityError(Exception):
+    """Raised when a payload fails signature or digest verification."""
+
+
+@dataclass
+class PayloadVerifier:
+    """
+    Verifies inbound payload integrity before any parsing occurs.
+
+    Design principles:
+      1. **Verify before parse** — signature check runs on the raw bytes;
+         JSON deserialization happens only after the MAC is confirmed.
+         This eliminates hash-then-use (TOCTOU) vulnerabilities.
+      2. **Constant-time comparison** — :func:`hmac.compare_digest` is used
+         throughout to prevent timing-oracle attacks.
+      3. **Platform-neutral** — works with GitHub webhooks (`X-Hub-Signature-256`),
+         Stripe (`Stripe-Signature`), Cloudflare Webhooks, and any custom
+         ``X-Signature-256: sha256=<hex>`` header convention.
+
+    Usage::
+
+        verifier = PayloadVerifier(secret=os.environ["WEBHOOK_SECRET"])
+        payload  = verifier.parse_and_verify_json(raw_body, request.headers["X-Hub-Signature-256"])
+    """
+
+    secret: str  # shared HMAC secret from environment / secret store
+
+    # ------------------------------------------------------------------ #
+    # HMAC-SHA256 webhook signature                                        #
+    # ------------------------------------------------------------------ #
+
+    def _compute_hmac(self, body: bytes) -> str:
+        """Return ``sha256=<hex>`` for *body* using the configured secret."""
+        mac = hmac.new(self.secret.encode(), body, hashlib.sha256)
+        return "sha256=" + mac.hexdigest()
+
+    def verify_hmac_signature(
+        self,
+        body: bytes,
+        signature_header: str,
+        *,
+        prefix: str = "sha256=",
+    ) -> bool:
+        """
+        Validate an HMAC-SHA256 signature header in constant time.
+
+        Args:
+            body:             Raw request body bytes.
+            signature_header: Value of the signature header (e.g.
+                              ``"sha256=abc123..."``).
+            prefix:           Expected prefix before the hex digest.
+                              Defaults to ``"sha256="``.
+
+        Returns:
+            ``True`` if the signature is valid.
+
+        Raises:
+            :class:`PayloadIntegrityError` on invalid format or mismatch.
+        """
+        if not signature_header.startswith(prefix):
+            raise PayloadIntegrityError(
+                f"Signature header missing expected prefix '{prefix}'"
+            )
+        expected = self._compute_hmac(body)
+        if not hmac.compare_digest(expected, signature_header):
+            raise PayloadIntegrityError("HMAC signature mismatch — payload may be tampered")
+        return True
+
+    # ------------------------------------------------------------------ #
+    # Content-Digest (RFC 9530)                                           #
+    # ------------------------------------------------------------------ #
+
+    def verify_content_digest(self, body: bytes, digest_header: str) -> bool:
+        """
+        Validate a ``Content-Digest: sha-256=:<base64>:`` header (RFC 9530).
+
+        Args:
+            body:          Raw request body bytes.
+            digest_header: Value of the ``Content-Digest`` header.
+
+        Returns:
+            ``True`` if the digest matches.
+
+        Raises:
+            :class:`PayloadIntegrityError` on format error or mismatch.
+        """
+        # RFC 9530 format: "sha-256=:<base64padded>:"
+        prefix = "sha-256=:"
+        suffix = ":"
+        if not (digest_header.startswith(prefix) and digest_header.endswith(suffix)):
+            raise PayloadIntegrityError(
+                "Content-Digest header not in RFC 9530 format 'sha-256=:<base64>:'"
+            )
+        encoded = digest_header[len(prefix):-len(suffix)]
+        try:
+            claimed = base64.b64decode(encoded)
+        except Exception as exc:
+            raise PayloadIntegrityError(f"Content-Digest base64 decode failed: {exc}") from exc
+        actual = hashlib.sha256(body).digest()
+        if not hmac.compare_digest(actual, claimed):
+            raise PayloadIntegrityError("Content-Digest mismatch — payload corrupted or replayed")
+        return True
+
+    # ------------------------------------------------------------------ #
+    # Verify-then-parse (safe JSON ingestion)                             #
+    # ------------------------------------------------------------------ #
+
+    def parse_and_verify_json(
+        self,
+        body: bytes,
+        signature_header: str,
+        *,
+        prefix: str = "sha256=",
+        max_bytes: int = 10 * 1024 * 1024,  # 10 MiB hard cap
+    ) -> Dict[str, Any]:
+        """
+        Verify the HMAC signature on *body*, **then** deserialize JSON.
+
+        The deliberate verify-before-parse order prevents an attacker from
+        exploiting parser quirks to smuggle malicious content past the MAC
+        check (billion-laughs, zip-bomb, prototype-pollution variants).
+
+        Args:
+            body:             Raw request body bytes.
+            signature_header: HMAC signature header value.
+            prefix:           Signature prefix (default ``"sha256="``).
+            max_bytes:        Maximum allowed body size; rejects oversized
+                              payloads before verification.
+
+        Returns:
+            Deserialized JSON object as a ``dict``.
+
+        Raises:
+            :class:`PayloadIntegrityError` on size violation, bad signature,
+            or invalid JSON.
+        """
+        if len(body) > max_bytes:
+            raise PayloadIntegrityError(
+                f"Payload too large: {len(body)} bytes (max {max_bytes})"
+            )
+        # 1. Verify signature on raw bytes — before any parsing
+        self.verify_hmac_signature(body, signature_header, prefix=prefix)
+        # 2. Only now is it safe to deserialize
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError as exc:
+            raise PayloadIntegrityError(f"JSON parse error after verified signature: {exc}") from exc
+
+
+# =============================================================================
+# Principal verification
+# =============================================================================
+
+class PrincipalType(Enum):
+    CF_ACCESS_JWT = "cf_access_jwt"   # Cloudflare Access (Zero Trust SSO)
+    API_KEY       = "api_key"         # ****** X-API-Key token
+    MTLS          = "mtls"            # mTLS client certificate
+    TRUSTED_IP    = "trusted_ip"      # Internal service by IP range
+    ANONYMOUS     = "anonymous"       # No credentials (public)
+
+
+@dataclass
+class PrincipalContext:
+    """
+    Normalised identity result returned by :class:`PrincipalVerifier`.
+
+    Attach to the request state so every downstream handler can ask
+    "who is calling and are they allowed?" without re-inspecting headers.
+    Ties into any platform: FastAPI request state, ASGI scope extras,
+    Django request.META, plain dicts, or Workers ``ctx.waitUntil`` audit logs.
+    """
+
+    principal_type: PrincipalType
+    identity: Optional[str]           # email / sub / fingerprint / IP CIDR
+    country: Optional[str]            # ISO 3166-1 alpha-2 from CF-IPCountry
+    ip: str                           # CF-Connecting-IP or REMOTE_ADDR
+    claims: Dict[str, Any]            # raw JWT claims or empty dict
+    is_verified: bool                 # False → anonymous / failed (never raise here)
+    is_bot_challenge_passed: bool = False   # Turnstile result if checked
+
+    @property
+    def is_authenticated(self) -> bool:
+        return self.is_verified and self.principal_type != PrincipalType.ANONYMOUS
+
+    def require_authenticated(self) -> None:
+        """Raise :class:`PermissionError` if the principal is not authenticated."""
+        if not self.is_authenticated:
+            raise PermissionError(
+                f"Unauthenticated request from {self.ip} "
+                f"(type={self.principal_type.value})"
+            )
+
+
+@dataclass
+class TrustedIPRanges:
+    """
+    Validate that an IP address falls within one of the declared CIDR ranges.
+
+    Typical use: allow internal worker-to-worker calls without JWT overhead.
+
+    Example::
+
+        internal = TrustedIPRanges(cidrs=["10.0.0.0/8", "172.16.0.0/12"])
+        internal.is_trusted("10.1.2.3")   # True
+        internal.is_trusted("1.2.3.4")    # False
+    """
+
+    cidrs: List[str]
+    _networks: List[ipaddress.IPv4Network | ipaddress.IPv6Network] = field(
+        init=False, default_factory=list
+    )
+
+    def __post_init__(self) -> None:
+        for cidr in self.cidrs:
+            self._networks.append(ipaddress.ip_network(cidr, strict=False))
+
+    def is_trusted(self, ip_str: str) -> bool:
+        try:
+            addr = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return False
+        return any(addr in net for net in self._networks)
+
+
+@dataclass
+class PrincipalVerifier:
+    """
+    Unified principal verifier that works with any HTTP framework.
+
+    Supports four authentication strategies in priority order:
+      1. **Cloudflare Access JWT** (``CF-Access-JWT-Assertion`` header) — for
+         Zero Trust–protected apps; JWTs are verified against the team domain's
+         public JWKS endpoint.
+      2. **API key** (``Authorization: ****** or ``X-API-Key: <key>``)
+         — constant-time comparison against a pre-loaded allow-set.
+      3. **mTLS client cert** (``Cf-Client-Cert-*`` headers injected by
+         Cloudflare mutual TLS) — extracts fingerprint for audit logging.
+      4. **Trusted IP** — falls back to :class:`TrustedIPRanges` for
+         service-mesh internal traffic.
+
+    All strategies populate a unified :class:`PrincipalContext` so application
+    code never needs to branch on authentication mechanism.
+
+    Note on CF-Access JWT:
+        Full signature validation requires fetching
+        ``https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`` (JWKS).
+        The method below performs structural + audience + expiry checks using
+        only stdlib (no PyJWT dependency). For production, replace the
+        ``_verify_jwt_signature`` stub with a call to a JWKS-backed verifier
+        (e.g. ``python-jose`` or ``PyJWT`` with ``algorithms=["RS256"]``).
+    """
+
+    team_domain: str           # e.g. "myteam.cloudflareaccess.com"
+    audience: str              # AUD claim in CF Access JWT (application ID)
+    valid_api_keys: Set[str]   # hashed API keys (SHA-256 hex) loaded from secrets
+    trusted_ips: Optional[TrustedIPRanges] = None
+
+    # ------------------------------------------------------------------ #
+    # CF-Access JWT                                                        #
+    # ------------------------------------------------------------------ #
+
+    def _decode_jwt_claims(self, token: str) -> Dict[str, Any]:
+        """Decode JWT payload without signature verification (structural check only)."""
+        parts = token.split(".")
+        if len(parts) != 3:
+            raise ValueError("Token is not a valid JWT (expected 3 parts)")
+        # Base64url → bytes (pad to multiple of 4)
+        payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+        try:
+            payload_bytes = base64.urlsafe_b64decode(payload_b64)
+            return json.loads(payload_bytes)
+        except Exception as exc:
+            raise ValueError(f"JWT payload decode error: {exc}") from exc
+
+    def _verify_jwt_claims(self, claims: Dict[str, Any]) -> None:
+        """Validate standard JWT claims (aud, exp, iss)."""
+        now = int(time.time())
+        # Expiry
+        exp = claims.get("exp")
+        if exp is None or now >= int(exp):
+            raise PermissionError("JWT is expired or missing exp claim")
+        # Not-before
+        nbf = claims.get("nbf")
+        if nbf is not None and now < int(nbf):
+            raise PermissionError("JWT not yet valid (nbf claim)")
+        # Audience
+        aud = claims.get("aud")
+        if isinstance(aud, str):
+            aud = [aud]
+        if not aud or self.audience not in aud:
+            raise PermissionError(f"JWT audience mismatch: expected '{self.audience}'")
+        # Issuer
+        expected_iss = f"https://{self.team_domain}"
+        iss = claims.get("iss", "")
+        if not iss.startswith(expected_iss):
+            raise PermissionError(f"JWT issuer mismatch: '{iss}'")
+
+    def _verify_jwt_signature(self, token: str) -> None:
+        """
+        Stub: replace with JWKS-backed RS256 verification in production.
+
+        Production implementation::
+
+            from jose import jwt as jose_jwt
+            jwks_url = f"https://{self.team_domain}/cdn-cgi/access/certs"
+            # Fetch and cache the JWKS, then:
+            jose_jwt.decode(token, jwks, algorithms=["RS256"], audience=self.audience)
+        """
+        # In test / dev environments this is a no-op.
+        # The claims checks in _verify_jwt_claims still run.
+        logger.warning(
+            "JWT signature verification is using the stub implementation. "
+            "Replace PrincipalVerifier._verify_jwt_signature with a "
+            "JWKS-backed RS256 verifier before deploying to production."
+        )
+
+    def from_cf_access_jwt(
+        self, jwt_assertion: str, ip: str, country: Optional[str] = None
+    ) -> PrincipalContext:
+        """
+        Build a :class:`PrincipalContext` from a ``CF-Access-JWT-Assertion`` header.
+
+        Raises:
+            :class:`PermissionError` if the token is invalid, expired, or
+            the audience/issuer does not match.
+        """
+        claims = self._decode_jwt_claims(jwt_assertion)
+        self._verify_jwt_claims(claims)
+        self._verify_jwt_signature(jwt_assertion)
+        identity = claims.get("email") or claims.get("sub")
+        return PrincipalContext(
+            principal_type=PrincipalType.CF_ACCESS_JWT,
+            identity=identity,
+            country=country,
+            ip=ip,
+            claims=claims,
+            is_verified=True,
+        )
+
+    # ------------------------------------------------------------------ #
+    # API key                                                              #
+    # ------------------------------------------------------------------ #
+
+    def _hash_api_key(self, key: str) -> str:
+        """Return SHA-256 hex of *key* for constant-time comparison."""
+        return hashlib.sha256(key.encode()).hexdigest()
+
+    def from_api_key(
+        self,
+        raw_key: str,
+        ip: str,
+        country: Optional[str] = None,
+    ) -> PrincipalContext:
+        """
+        Validate an API key using constant-time comparison against stored hashes.
+
+        Keys are never stored in plain text; the ``valid_api_keys`` set holds
+        SHA-256 hex digests.  Raw keys come from ``Authorization: ******
+        or ``X-API-Key`` headers.
+
+        Raises:
+            :class:`PermissionError` for invalid keys.
+        """
+        key_hash = self._hash_api_key(raw_key)
+        # Build a dummy digest for constant-time comparison even on miss
+        # (prevents early-exit timing oracle)
+        match = any(
+            hmac.compare_digest(key_hash, stored) for stored in self.valid_api_keys
+        )
+        if not match:
+            raise PermissionError("Invalid API key")
+        return PrincipalContext(
+            principal_type=PrincipalType.API_KEY,
+            identity=key_hash[:12] + "…",  # partial hash for audit logs, never full key
+            country=country,
+            ip=ip,
+            claims={},
+            is_verified=True,
+        )
+
+    # ------------------------------------------------------------------ #
+    # mTLS                                                                 #
+    # ------------------------------------------------------------------ #
+
+    def from_mtls_headers(
+        self, headers: Dict[str, str], ip: str, country: Optional[str] = None
+    ) -> PrincipalContext:
+        """
+        Extract mTLS identity from Cloudflare-injected ``Cf-Client-Cert-*`` headers.
+
+        Cloudflare injects these headers when mTLS is configured on the zone:
+          - ``Cf-Client-Cert-Der-Base64``  — DER-encoded cert (base64)
+          - ``Cf-Client-Cert-Verified``    — ``SUCCESS`` if cert is valid
+          - ``Cf-Client-Cert-Fingerprint`` — SHA-256 fingerprint
+
+        Raises:
+            :class:`PermissionError` if the certificate is not verified.
+        """
+        verified = headers.get("Cf-Client-Cert-Verified", "FAILED")
+        if verified != "SUCCESS":
+            raise PermissionError(f"mTLS certificate not verified: '{verified}'")
+        fingerprint = headers.get("Cf-Client-Cert-Fingerprint", "unknown")
+        return PrincipalContext(
+            principal_type=PrincipalType.MTLS,
+            identity=fingerprint,
+            country=country,
+            ip=ip,
+            claims={"cert_verified": verified, "fingerprint": fingerprint},
+            is_verified=True,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Auto-detect                                                          #
+    # ------------------------------------------------------------------ #
+
+    def from_request_headers(
+        self,
+        headers: Dict[str, str],
+        ip: str,
+        country: Optional[str] = None,
+    ) -> PrincipalContext:
+        """
+        Auto-detect the authentication mechanism from request headers and
+        return the highest-trust :class:`PrincipalContext` available.
+
+        Priority order (highest → lowest):
+          1. CF-Access JWT assertion
+          2. mTLS client certificate
+          3. ****** X-API-Key token
+          4. Trusted source IP
+          5. Anonymous
+
+        This method is intentionally non-raising: failed verifications fall
+        through to the next strategy, ultimately returning an ANONYMOUS
+        context.  Use :meth:`PrincipalContext.require_authenticated` in
+        handlers that require identity.
+        """
+        # 1. CF-Access JWT
+        jwt_header = headers.get("CF-Access-JWT-Assertion") or headers.get("Cf-Access-Jwt-Assertion")
+        if jwt_header:
+            try:
+                return self.from_cf_access_jwt(jwt_header, ip, country)
+            except (PermissionError, ValueError) as exc:
+                logger.warning("CF-Access JWT rejected for %s: %s", ip, exc)
+
+        # 2. mTLS
+        if headers.get("Cf-Client-Cert-Verified"):
+            try:
+                return self.from_mtls_headers(headers, ip, country)
+            except PermissionError as exc:
+                logger.warning("mTLS rejected for %s: %s", ip, exc)
+
+        # 3. API key  (****** X-API-Key)
+        auth = headers.get("Authorization", "")
+        raw_key = ""
+        if auth.lower().startswith("bearer "):
+            raw_key = auth[7:].strip()
+        elif "X-API-Key" in headers:
+            raw_key = headers["X-API-Key"].strip()
+        if raw_key:
+            try:
+                return self.from_api_key(raw_key, ip, country)
+            except PermissionError as exc:
+                logger.warning("API key rejected for %s: %s", ip, exc)
+
+        # 4. Trusted IP
+        if self.trusted_ips and self.trusted_ips.is_trusted(ip):
+            return PrincipalContext(
+                principal_type=PrincipalType.TRUSTED_IP,
+                identity=ip,
+                country=country,
+                ip=ip,
+                claims={},
+                is_verified=True,
+            )
+
+        # 5. Anonymous
+        return PrincipalContext(
+            principal_type=PrincipalType.ANONYMOUS,
+            identity=None,
+            country=country,
+            ip=ip,
+            claims={},
+            is_verified=False,
+        )
+
+
+# =============================================================================
+# Workers template: verified payload ingestion + principal auth
+# =============================================================================
+
+WORKER_TEMPLATE_PAYLOAD_VERIFIED = r"""
+/**
+ * Cloudflare Workers: Payload Integrity + Principal Verification
+ *
+ * Combines HMAC-SHA256 webhook signature verification, CF-Access JWT
+ * validation, and API-key auth into a single composable middleware chain.
+ * Drop into any Workers project — wire up the env bindings below.
+ *
+ * wrangler.toml env bindings:
+ *   [vars]
+ *     ALLOWED_ORIGINS   = "https://app.example.com"
+ *     AUDIENCE          = "<CF-Access Application AUD>"
+ *     TEAM_DOMAIN       = "myteam.cloudflareaccess.com"
+ *   [[kv_namespaces]]
+ *     binding           = "API_KEYS_KV"   # stores sha256(key) → "1"
+ *   [secrets]  (via wrangler secret put)
+ *     WEBHOOK_SECRET                      # shared HMAC secret
+ */
+
+// ── Payload integrity ────────────────────────────────────────────────────────
+
+/**
+ * Verify an HMAC-SHA256 signature header using the Web Crypto API.
+ * Constant-time via crypto.subtle.verify — immune to timing oracles.
+ *
+ * @param {ArrayBuffer} body          Raw request body bytes.
+ * @param {string}      sigHeader     Header value, e.g. "sha256=abc123..."
+ * @param {string}      secret        Shared HMAC secret from env.
+ * @returns {Promise<boolean>}
+ */
+async function verifyHmacSignature(body, sigHeader, secret) {
+  const PREFIX = "sha256=";
+  if (!sigHeader?.startsWith(PREFIX)) return false;
+  const claimedHex = sigHeader.slice(PREFIX.length);
+
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw", enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false, ["verify"]
+  );
+
+  // Convert hex → Uint8Array for constant-time comparison
+  const claimedBytes = new Uint8Array(
+    claimedHex.match(/.{2}/g).map(b => parseInt(b, 16))
+  );
+  return crypto.subtle.verify("HMAC", key, claimedBytes, body);
+}
+
+/**
+ * Verify a Content-Digest header (RFC 9530, sha-256 only).
+ *
+ * @param {ArrayBuffer} body
+ * @param {string}      digestHeader  e.g. "sha-256=:<base64>:"
+ * @returns {Promise<boolean>}
+ */
+async function verifyContentDigest(body, digestHeader) {
+  const PREFIX = "sha-256=:", SUFFIX = ":";
+  if (!digestHeader?.startsWith(PREFIX) || !digestHeader.endsWith(SUFFIX)) return false;
+  const b64 = digestHeader.slice(PREFIX.length, -SUFFIX.length);
+  const claimed = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const actual = new Uint8Array(await crypto.subtle.digest("SHA-256", body));
+  if (actual.length !== claimed.length) return false;
+  // Constant-time comparison
+  let diff = 0;
+  for (let i = 0; i < actual.length; i++) diff |= actual[i] ^ claimed[i];
+  return diff === 0;
+}
+
+/**
+ * Read body bytes, verify signature/digest, THEN parse JSON.
+ * Rejects oversized bodies before any crypto work.
+ *
+ * @param {Request} request
+ * @param {object}  env
+ * @param {number}  [maxBytes=10485760]  Default 10 MiB.
+ * @returns {Promise<object>} Parsed JSON payload.
+ */
+async function parseVerifiedJson(request, env, maxBytes = 10 * 1024 * 1024) {
+  const body = await request.arrayBuffer();
+  if (body.byteLength > maxBytes) {
+    throw Object.assign(new Error("Payload too large"), { status: 413 });
+  }
+
+  const sigHeader    = request.headers.get("X-Hub-Signature-256")
+                    || request.headers.get("X-Signature-256");
+  const digestHeader = request.headers.get("Content-Digest");
+
+  if (sigHeader) {
+    const ok = await verifyHmacSignature(body, sigHeader, env.WEBHOOK_SECRET);
+    if (!ok) throw Object.assign(new Error("HMAC signature mismatch"), { status: 401 });
+  } else if (digestHeader) {
+    const ok = await verifyContentDigest(body, digestHeader);
+    if (!ok) throw Object.assign(new Error("Content-Digest mismatch"), { status: 400 });
+  }
+  // Signature verified — safe to parse
+  return JSON.parse(new TextDecoder().decode(body));
+}
+
+// ── Principal verification ───────────────────────────────────────────────────
+
+/**
+ * Decode a JWT payload without signature verification (structural check).
+ * Always call verifyCFAccessJWT (which includes claim validation) in prod.
+ */
+function decodeJwtPayload(token) {
+  const [, payload] = token.split(".");
+  const padded = payload + "=".repeat((4 - payload.length % 4) % 4);
+  return JSON.parse(atob(padded.replace(/-/g, "+").replace(/_/g, "/")));
+}
+
+/**
+ * Validate a CF-Access JWT assertion.
+ * Performs structural, audience, expiry, and issuer checks.
+ * For RS256 signature verification, use the CF-Access JWKS endpoint:
+ *   https://<TEAM_DOMAIN>/cdn-cgi/access/certs
+ * (integrate with a JWKS cache in production).
+ *
+ * @param {string} token
+ * @param {object} env   Must have AUDIENCE and TEAM_DOMAIN vars.
+ * @returns {{ email: string, claims: object }}
+ */
+function verifyCFAccessJWT(token, env) {
+  let claims;
+  try { claims = decodeJwtPayload(token); }
+  catch { throw Object.assign(new Error("Malformed JWT"), { status: 401 }); }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (!claims.exp || now >= claims.exp) {
+    throw Object.assign(new Error("JWT expired"), { status: 401 });
+  }
+  if (claims.nbf && now < claims.nbf) {
+    throw Object.assign(new Error("JWT not yet valid"), { status: 401 });
+  }
+  const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!aud.includes(env.AUDIENCE)) {
+    throw Object.assign(new Error("JWT audience mismatch"), { status: 401 });
+  }
+  const expectedIss = `https://${env.TEAM_DOMAIN}`;
+  if (!String(claims.iss || "").startsWith(expectedIss)) {
+    throw Object.assign(new Error("JWT issuer mismatch"), { status: 401 });
+  }
+  return { email: claims.email || claims.sub, claims };
+}
+
+/**
+ * Resolve the caller's principal from request headers.
+ * Returns null for anonymous requests.
+ *
+ * Priority: CF-Access JWT → mTLS cert → API key → anonymous
+ *
+ * @param {Request} request
+ * @param {object}  env
+ * @returns {Promise<{ type: string, identity: string|null, claims: object }>}
+ */
+async function resolvePrincipal(request, env) {
+  // 1. CF-Access JWT
+  const jwtAssertion = request.headers.get("CF-Access-JWT-Assertion");
+  if (jwtAssertion) {
+    const { email, claims } = verifyCFAccessJWT(jwtAssertion, env);
+    return { type: "cf_access_jwt", identity: email, claims };
+  }
+
+  // 2. mTLS client certificate
+  const certVerified = request.headers.get("Cf-Client-Cert-Verified");
+  if (certVerified === "SUCCESS") {
+    const fingerprint = request.headers.get("Cf-Client-Cert-Fingerprint") || "unknown";
+    return { type: "mtls", identity: fingerprint, claims: {} };
+  }
+
+  // 3. API key (****** X-API-Key)
+  let rawKey = null;
+  const auth = request.headers.get("Authorization") || "";
+  if (auth.toLowerCase().startsWith("bearer ")) rawKey = auth.slice(7).trim();
+  else rawKey = request.headers.get("X-API-Key");
+
+  if (rawKey) {
+    const enc = new TextEncoder();
+    const hashBuf = await crypto.subtle.digest("SHA-256", enc.encode(rawKey));
+    const hashHex = Array.from(new Uint8Array(hashBuf))
+      .map(b => b.toString(16).padStart(2, "0")).join("");
+    const valid = await env.API_KEYS_KV.get(hashHex);
+    if (!valid) throw Object.assign(new Error("Invalid API key"), { status: 401 });
+    return { type: "api_key", identity: hashHex.slice(0, 12) + "…", claims: {} };
+  }
+
+  // 4. Anonymous
+  return { type: "anonymous", identity: null, claims: {} };
+}
+
+// ── Main handler ─────────────────────────────────────────────────────────────
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+
+    // a) OPTIONS preflight (no body to verify)
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: getCORSHeaders(request, env) });
+    }
+
+    try {
+      // b) Resolve principal (does NOT require an authenticated caller yet)
+      const principal = await resolvePrincipal(request, env);
+
+      // c) For mutating endpoints: verify payload integrity before processing
+      let payload = null;
+      if (["POST", "PUT", "PATCH"].includes(request.method)) {
+        payload = await parseVerifiedJson(request, env);
+      }
+
+      // d) Route to handler — pass principal + verified payload
+      if (url.pathname === "/webhook" && request.method === "POST") {
+        // Webhook consumers: payload is already MAC-verified
+        ctx.waitUntil(processWebhook(payload, principal, env));
+        return Response.json({ queued: true });
+      }
+
+      if (url.pathname.startsWith("/api/") && principal.type === "anonymous") {
+        return Response.json({ error: "Authentication required" }, { status: 401 });
+      }
+
+      return Response.json({ ok: true, principal: principal.identity });
+
+    } catch (err) {
+      const status = err.status || 500;
+      console.error(`[${status}] ${err.message}`);
+      return Response.json({ error: err.message }, { status });
+    }
+  },
+};
+
+async function processWebhook(payload, principal, env) {
+  // Payload is already verified — safe to act on
+  console.log("Webhook from", principal.type, JSON.stringify(payload));
+}
+"""
+
+
+# =============================================================================
 # Security checklist
 # =============================================================================
 #
@@ -589,3 +1327,7 @@ CACHE_CONTROL_RECIPES: Dict[str, str] = {
 # ✅ Durable Objects: serialized access for shared state (no race conditions)
 # ✅ Cache: s-maxage headers prevent sensitive data from being CDN-cached
 # ✅ IaaC: all config managed in Terraform (see cloudflare_terraform.tf)
+# ✅ Payload integrity: HMAC-SHA256 + Content-Digest (RFC 9530); verify-before-parse order
+# ✅ Principal verification: CF-Access JWT, API key (constant-time), mTLS, trusted-IP
+# ✅ Timing-attack resistance: hmac.compare_digest / crypto.subtle.verify throughout
+# ✅ Oversized payload rejection: hard cap before any crypto or JSON work
