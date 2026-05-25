@@ -1,36 +1,57 @@
 {
   "schema_version": "1.1",
-  "last_checked_at": "2026-03-16T00:00:00+00:00",
+  "last_checked_at": "2026-05-25T08:28:48.703738+00:00",
   "policy": {
-    "berri_role": "upstream dependency source of truth — PyPI package source",
-    "openhands_role": "ecosystem signal / integration pattern observer — NOT a runtime dependency source"
+    "berri_role": "upstream dependency source of truth \u2014 PyPI package source",
+    "openhands_role": "ecosystem signal / integration pattern observer \u2014 NOT a runtime dependency source"
   },
   "litellm_upstream": {
-    "_note": "Populated by .github/workflows/openhands-ecosystem-watch.yml",
-    "latest_release_tag": null,
-    "latest_release_date": null,
-    "release_url": "https://github.com/BerriAI/litellm/releases/latest",
-    "main_branch_sha": null,
-    "main_branch_updated": null
+    "latest_release_tag": "v1.86.0",
+    "latest_release_date": "2026-05-24T04:59:28Z",
+    "release_url": "https://github.com/BerriAI/litellm/releases/tag/v1.86.0",
+    "main_branch_sha": "06f6cfc5ae377edc9b6067475f2402fa34161e60",
+    "main_branch_updated": "2026-05-23T23:35:14Z"
   },
   "openhands_fork": {
-    "_note": "Observed for signals only — not used as a package source",
-    "head_sha": null,
-    "last_updated": null,
-    "pushed_at": null,
-    "open_issues_count": null,
+    "head_sha": "8a3a0f4db13d2090821b46c56dd3a680eae6e0a2",
+    "last_updated": "2026-04-15T15:28:41Z",
+    "pushed_at": "2026-05-25T00:42:54Z",
+    "open_issues_count": 1,
     "fork_of": "BerriAI/litellm",
     "role": "ecosystem_signal_only",
-    "commits_behind": null,
-    "commits_ahead": null
+    "commits_behind": 0,
+    "commits_ahead": 9121
   },
   "openhands_watched_files": {
-    "_note": "Recent activity in files relevant to OpsMemory integration patterns",
-    "litellm/__init__.py": {},
-    "litellm/main.py": {},
-    "litellm/router.py": {},
-    "litellm/utils.py": {},
-    "model_prices_and_context_window.json": {},
-    "litellm/integrations/": {}
+    "litellm/__init__.py": {
+      "sha": "fef5b0f4",
+      "date": "2026-01-10T18:05:21Z",
+      "message": "ci/cd new release"
+    },
+    "litellm/main.py": {
+      "sha": "9d173ba4",
+      "date": "2026-01-15T08:14:58Z",
+      "message": "fix: prevent MCP type objects from being captured in locals()"
+    },
+    "litellm/router.py": {
+      "sha": "d03548b0",
+      "date": "2026-01-14T12:12:52Z",
+      "message": "Fix all 130126 tests"
+    },
+    "litellm/utils.py": {
+      "sha": "83cdfd88",
+      "date": "2026-01-15T10:18:00Z",
+      "message": "Merge pull request #19059 from BerriAI/litellm_openrouter_image_gen  Add openrouter support for image/generation endpoin"
+    },
+    "model_prices_and_context_window.json": {
+      "sha": "62eee476",
+      "date": "2026-01-14T19:49:40Z",
+      "message": "Add support for OpenAI's gpt-5.2-codex (#19101)  Reference: - https://openai.com/index/introducing-gpt-5-2-codex/ - http"
+    },
+    "litellm/integrations/": {
+      "sha": "0de871b0",
+      "date": "2026-01-15T01:45:21Z",
+      "message": "Fixing unused import"
+    }
   }
 }
