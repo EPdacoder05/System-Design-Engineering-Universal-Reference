@@ -925,7 +925,16 @@ class PrincipalVerifier:
     # ------------------------------------------------------------------ #
 
     def _hash_api_key(self, key: str) -> str:
-        """Return SHA-256 hex of *key* for constant-time comparison."""
+        """
+        Return SHA-256 hex of *key* for constant-time comparison.
+
+        API keys are high-entropy random tokens (≥128 bits), not
+        user-chosen passwords.  SHA-256 is the correct choice here:
+        bcrypt/argon2 are designed for low-entropy secrets (passwords).
+        For passwords, use a password-hashing function; for random tokens,
+        SHA-256 is both secure and appropriate.
+        """
+        # nosec B324 — not a password; raw_key is a high-entropy random token
         return hashlib.sha256(key.encode()).hexdigest()
 
     def from_api_key(
