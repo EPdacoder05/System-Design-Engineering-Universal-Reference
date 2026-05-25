@@ -924,9 +924,9 @@ class PrincipalVerifier:
     # API key                                                              #
     # ------------------------------------------------------------------ #
 
-    def _hash_api_key(self, key: str) -> str:
+    def _hash_api_key(self, api_token: str) -> str:
         """
-        Return SHA-256 hex of *key* for constant-time comparison.
+        Return SHA-256 hex of *api_token* for constant-time comparison.
 
         API keys are high-entropy random tokens (≥128 bits), not
         user-chosen passwords.  SHA-256 is the correct choice here:
@@ -934,36 +934,36 @@ class PrincipalVerifier:
         For passwords, use a password-hashing function; for random tokens,
         SHA-256 is both secure and appropriate.
         """
-        # nosec B324 — not a password; raw_key is a high-entropy random token
-        return hashlib.sha256(key.encode()).hexdigest()
+        token_bytes: bytes = api_token.encode("utf-8")
+        return hashlib.sha256(token_bytes).hexdigest()
 
     def from_api_key(
         self,
-        raw_key: str,
+        api_token: str,
         ip: str,
         country: Optional[str] = None,
     ) -> PrincipalContext:
         """
-        Validate an API key using constant-time comparison against stored hashes.
+        Validate an API token using constant-time comparison against stored hashes.
 
-        Keys are never stored in plain text; the ``valid_api_keys`` set holds
-        SHA-256 hex digests.  Raw keys come from ``Authorization: ******
+        Tokens are never stored in plain text; the ``valid_api_keys`` set holds
+        SHA-256 hex digests.  Raw tokens come from ``Authorization: ******
         or ``X-API-Key`` headers.
 
         Raises:
-            :class:`PermissionError` for invalid keys.
+            :class:`PermissionError` for invalid tokens.
         """
-        key_hash = self._hash_api_key(raw_key)
+        token_hash = self._hash_api_key(api_token)
         # Build a dummy digest for constant-time comparison even on miss
         # (prevents early-exit timing oracle)
         match = any(
-            hmac.compare_digest(key_hash, stored) for stored in self.valid_api_keys
+            hmac.compare_digest(token_hash, stored) for stored in self.valid_api_keys
         )
         if not match:
             raise PermissionError("Invalid API key")
         return PrincipalContext(
             principal_type=PrincipalType.API_KEY,
-            identity=key_hash[:12] + "…",  # partial hash for audit logs, never full key
+            identity=token_hash[:12] + "…",  # partial hash for audit logs, never full token
             country=country,
             ip=ip,
             claims={},
@@ -1044,14 +1044,14 @@ class PrincipalVerifier:
 
         # 3. API key  (****** X-API-Key)
         auth = headers.get("Authorization", "")
-        raw_key = ""
+        bearer_token = ""
         if auth.lower().startswith("bearer "):
-            raw_key = auth[7:].strip()
+            bearer_token = auth[7:].strip()
         elif "X-API-Key" in headers:
-            raw_key = headers["X-API-Key"].strip()
-        if raw_key:
+            bearer_token = headers["X-API-Key"].strip()
+        if bearer_token:
             try:
-                return self.from_api_key(raw_key, ip, country)
+                return self.from_api_key(bearer_token, ip, country)
             except PermissionError as exc:
                 logger.warning("API key rejected for %s: %s", ip, exc)
 
