@@ -45,10 +45,10 @@ markers =
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 from typing import AsyncGenerator, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
@@ -423,7 +423,7 @@ def db_transaction(db_connection):
     
     # Rollback transaction
     transaction["operations"].clear()
-    print(f"\n[TEARDOWN] Database transaction rolled back")
+    print("\n[TEARDOWN] Database transaction rolled back")
 
 
 @pytest.fixture
@@ -700,7 +700,7 @@ class TestAPIEndpoints:
     
     def test_update_user_endpoint(self, api_client, user_factory):
         """Test PUT /users/{id} endpoint."""
-        user_data = user_factory.create()
+        _user_data = user_factory.create()
         update_data = {"email": "updated@example.com"}
         
         response = api_client.put("/api/v1/users/1", json=update_data)
