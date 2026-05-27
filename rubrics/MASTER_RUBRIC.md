@@ -73,3 +73,29 @@ Use this quick reference for identity and authorization decisions:
 - **Quarterly:** promote proven patterns, retire weak patterns
 
 Default posture: improvements ship on a **rolling update basis**, with versioned traceability.
+
+---
+
+## 7) Coding Agent Conventions
+
+Rules for any AI/LLM agent writing code or docs in these repos. Violations degrade signal quality and increase token waste across sessions.
+
+**Output quality**
+- No emoji spam; omit entirely or use once where semantically meaningful
+- No filler phrases ("Great question!", "Certainly!", "As an AI...") — start with the answer
+- No placeholder prose ("TODO: add logic here") in production code paths
+- Responses scoped to what changed; no restating the full prior conversation
+
+**Memory / context management**
+- Do not create new files solely for agent notes or context memory — update existing rubric/log files
+- Encode lessons as table rows or checklist items in the relevant domain checklist
+- Log every rubric change in `ROLLING_UPDATE_LOG.md` per the entry template
+
+**Plug-and-play templates**
+- New project scaffolds must pass `ruff check` + `mypy --strict` (or equivalent) before first commit
+- CI pipeline gate order: lint → typecheck → test → build; downstream jobs must declare `needs:` on upstream hard gates
+- `Build Docker Image` (or equivalent build step) must declare `needs: [lint, typecheck, test]` so a type failure does not silently skip the build
+
+**Cross-repo learning**
+- When a pattern causes a CI failure in any repo, add the avoid/correct pair to the relevant domain checklist here
+- Source repo + PR number as a comment is sufficient citation; no new files needed

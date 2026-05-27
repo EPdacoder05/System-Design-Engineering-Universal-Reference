@@ -70,3 +70,37 @@ Use this template for each significant change.
 - Tests/lint/type checks run: `ruff check testing/test_framework.py` + all changed `.py` files
 - Result summary: All checks passed (exit 0)
 - Known limitations: Rule list covers only the violations observed; expand as new patterns emerge.
+
+---
+
+### Change ID
+- ID: `20260527-cross-repo-rubric-expansion`
+- Date: 2026-05-27
+- Repository: EPdacoder05/System-Design-Engineering-Universal-Reference
+- Owner: @copilot
+- Rubric Version: `1.0.0`
+- Source PRs: security-data-fabric#12, ha-iot-stack#1–4, System-Design-Engineering-Universal-Reference#18
+
+### Required Rolling Fields
+- **What changed:**
+  - `SWE.md`: extended Python Linting table (I001 import order, E501 line length); added mypy type annotation section (nested dict shapes, explicit return types, untyped `.get()` locals).
+  - `DEVOPS.md`: added Docker Container Security table (privileged mode, pinned tags, healthchecks, read-only FS, explicit build context, missing requirements.txt).
+  - `MASTER_RUBRIC.md`: added Section 7 Coding Agent Conventions (output quality, memory management, plug-and-play templates, cross-repo learning rule).
+- **Why:** Three separate CI failures across two repos (security-data-fabric#12 mypy/lint; ha-iot-stack#2–3 Docker build; this repo#18 ruff) exposed patterns not yet in the rubric. Without codifying them, agents repeat the same breaks project to project.
+- **Impact:** Any agent scaffolding a new Python service or Docker stack against this rubric will avoid the same regressions. Cross-repo learning loop is now self-documenting.
+- **Next experiment:** Add pre-commit config template to DevOps checklist that wires `ruff`, `mypy`, and `docker compose config --quiet` as local gates.
+- **Deprecation notes:** None.
+
+### Required Deltas
+- **Rubric score delta:**
+  - Maintainability: 4 → 5
+  - Clarity: 4 → 5
+  - Operability: 3 → 4 (Docker security patterns explicit)
+  - Total: `before +3`
+- **Risk delta:** Reduced — lint/mypy/Docker break patterns now documented with avoid/correct pairs.
+- **Production readiness delta:** CI hard-gates documented; Docker security baseline explicit.
+
+### Validation
+- Tests/lint/type checks run: doc-only change; no `.py` files modified
+- Result summary: No CI gates applicable
+- Known limitations: mypy nested-dict rule applies to Python ≥ 3.9 with `from __future__ import annotations` or `typing.Dict`; update when codebase migrates to built-in generics.
