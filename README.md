@@ -204,6 +204,71 @@ Production FastAPI templates with security, observability, and best practices.
 
 ---
 
+### [`api/graphql_reference.py`](api/graphql_reference.py)
+**Complete GraphQL reference — Strawberry + FastAPI**
+- ✅ Schema design: types, inputs, unions, enums
+- ✅ **DataLoader** — eliminates N+1 queries (one DB round-trip per batch)
+- ✅ **Depth limiting** (MAX_DEPTH=7) + **complexity limiting** (MAX_COMPLEXITY=50)
+- ✅ JWT authentication via context injection + field-level permission classes
+- ✅ **Relay cursor-based pagination** (spec-compliant, prevents offset injection)
+- ✅ **Subscriptions** over WebSocket (graphql-ws protocol)
+- ✅ **Apollo Federation v2** subgraph pattern
+- ✅ **Automatic Persisted Queries** (APQ) cache for bandwidth reduction + allow-listing
+- ✅ Typed mutation result errors (never leak stack traces)
+- ✅ Disable introspection in production
+
+**Apply to:** BFF (Backend for Frontend), flexible data APIs, federated micro-service graphs
+
+---
+
+### [`api/grpc_reference.py`](api/grpc_reference.py)
+**Complete gRPC reference — all four RPC patterns**
+- ✅ **Unary, server-streaming, client-streaming, bidirectional streaming**
+- ✅ Protobuf schema reference (embedded)
+- ✅ **JWT interceptor** — validates every non-exempt method
+- ✅ **mTLS channel factory** — mutual certificate authentication
+- ✅ **Retry policy** with exponential backoff (UNAVAILABLE / RESOURCE_EXHAUSTED)
+- ✅ **Deadline propagation** and keepalive pings
+- ✅ Health checking (`grpc.health.v1`) — Kubernetes liveness/readiness compatible
+- ✅ Reflection service (dev tooling — grpcurl, Postman)
+- ✅ ThreadPool size cap (prevents thread-exhaustion DoS)
+
+**Apply to:** High-throughput internal microservice communication, streaming pipelines, polyglot service meshes
+
+---
+
+### [`api/websocket_reference.py`](api/websocket_reference.py)
+**WebSocket + Server-Sent Events (SSE) + Webhooks**
+- ✅ **WebSocket room manager** — fan-out to all subscribers, async broadcast
+- ✅ **JWT authentication on upgrade** (before `ws.accept()`)
+- ✅ **Per-connection rate limiting** (token bucket, 30 req burst / 10 req/s)
+- ✅ **Ping/pong keepalive** — detects stale connections on load balancers
+- ✅ **Redis Pub/Sub bridge** — horizontal scaling across multiple server nodes
+- ✅ **SSE endpoint** — unidirectional server push (notifications, feeds)
+- ✅ **HMAC webhook verification** — compatible with GitHub, Stripe, Shopify
+- ✅ **AsyncAPI 2.x schema** reference (embedded)
+- ✅ Protocol choice guide: REST vs GraphQL vs gRPC vs WebSocket vs SSE
+
+**Apply to:** Chat, collaborative editing, live dashboards, real-time notifications, webhooks
+
+---
+
+### [`api/cloudflare_platform.py`](api/cloudflare_platform.py)
+**Cloudflare S-Tier Platform Reference**
+- ✅ **CORS policy builder** — strict, public API, internal modes with `Vary: Origin`
+- ✅ **Full security header suite** — CSP, HSTS (preload), Permissions-Policy, COEP/COOP
+- ✅ **Geo-IP rate limiter** — per-country risk tiers (blocked/elevated/normal/trusted)
+- ✅ **Workers templates** (JS) — CORS + security headers + geo-IP blocking + KV rate limiting
+- ✅ **Durable Objects** template — strongly consistent per-IP rate limiting actor
+- ✅ **Turnstile** bot-protection integration
+- ✅ **Platform feature matrix** — Workers, D1, KV, R2, Queues, Durable Objects, Access
+- ✅ **Cache-Control recipes** — immutable assets, API CDN cache, private session, no-cache
+- ✅ Concurrency model guide (isolates vs. DO actors)
+
+**Apply to:** API gateways, CDN-accelerated apps, edge auth middleware, zero-trust access
+
+---
+
 ## ⚡ Performance
 
 Optimization patterns with cost models and complexity analysis.
@@ -356,6 +421,24 @@ See `cicd/Dockerfile` for the reference implementation.
 - ✅ Comments explaining customization points
 
 **Apply to:** CI/CD pipelines, security automation, infrastructure provisioning
+
+---
+
+### [`security/iac/cloudflare_terraform.tf`](security/iac/cloudflare_terraform.tf)
+**Cloudflare IaaC — Terraform (S-Tier configuration)**
+- ✅ **Zone settings** — TLS 1.2+, TLS 1.3+0-RTT, HSTS, brotli, HTTP/2+3, Early Hints
+- ✅ **WAF Managed Rules** — Cloudflare Managed Ruleset + OWASP CRS (block mode)
+- ✅ **WAF Custom Rules** — geo-IP block, threat score, bot filtering, scanner UA, path traversal
+- ✅ **Geo-IP Rate Limiting** — OFAC countries blocked, elevated-risk countries 30 req/min, auth endpoints 10 req/min
+- ✅ **Security Headers Transform Rule** — CSP, HSTS, Permissions-Policy, COEP/COOP injected on every response
+- ✅ **Cache Rules** — immutable assets, CDN short-cache for APIs, no-store for auth
+- ✅ **Workers Route** binding
+- ✅ **R2 Bucket** — zero-egress object storage with lifecycle protection
+- ✅ **Cloudflare Access** — Zero Trust SSO + MFA for admin panel
+- ✅ **Cloudflare Tunnel** — origin never exposed to public internet
+- ✅ **DNS records** — A, CNAME, SPF, DMARC (p=reject)
+
+**Apply to:** Any Cloudflare-fronted service — APIs, web apps, SaaS, internal tools
 
 ---
 
