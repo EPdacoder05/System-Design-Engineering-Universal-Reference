@@ -1,6 +1,6 @@
 # Jarvis — Migration Record
 
-**Status:** Extracted to `EPdacoder05/Jarvis-AI-Assistant`
+**Status:** Migrated to `EPdacoder05/Jarvis-AI-Assistant` (not deleted)
 
 ---
 
@@ -13,6 +13,18 @@
 | Slash commands (`.claude/commands/`) | `tools/jarvis/.claude/commands/` | `EPdacoder05/Jarvis-AI-Assistant/.claude/commands/` |
 | Agent prompt (`CLAUDE.md`) | `tools/jarvis/CLAUDE.md` | `EPdacoder05/Jarvis-AI-Assistant/CLAUDE.md` |
 | Tests (`tests/`) | `tools/jarvis/tests/` | `EPdacoder05/Jarvis-AI-Assistant/tests/` |
+
+---
+
+## Migration guardrail (important)
+
+This phase is a **repo extraction**, not a product deletion.
+
+All product artifacts listed above must exist and be maintained in the Jarvis repository:
+
+- https://github.com/EPdacoder05/Jarvis-AI-Assistant
+
+If anything appears "removed" in this repository, treat it as **relocated ownership** and validate it in the Jarvis repo migration history.
 
 ---
 
