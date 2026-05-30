@@ -18,13 +18,16 @@
 
 ## Migration guardrail (important)
 
-This phase is a **repo extraction**, not a product deletion.
+Phase 3 migration is a **repo extraction**, not a product deletion.
 
 All product artifacts listed above must exist and be maintained in the Jarvis repository:
 
 - https://github.com/EPdacoder05/Jarvis-AI-Assistant
 
-If anything appears "removed" in this repository, treat it as **relocated ownership** and validate it in the Jarvis repo migration history.
+If anything appears "removed" in this repository, treat it as **relocated ownership**.
+Future maintainers should validate relocation by checking the corresponding commit history in:
+
+- https://github.com/EPdacoder05/Jarvis-AI-Assistant
 
 ---
 
