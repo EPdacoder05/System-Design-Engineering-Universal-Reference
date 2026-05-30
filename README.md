@@ -1,40 +1,45 @@
-# 🎯 System Design & Engineering Universal Reference Library
+# System Design & Engineering Universal Reference
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Status](https://img.shields.io/badge/Status-Production--Ready-brightgreen)
+![Status](https://img.shields.io/badge/Status-Active-brightgreen)
 ![Platform](https://img.shields.io/badge/Platform-Agnostic-orange)
 
-**A complete, modular, copy-paste-ready engineering reference library** across all disciplines. This is a portable toolkit that can be cloned and used at ANY company, ANY project, ANY role — from analyst to engineer to pentester. **No PII, no sector-specific info. Pure engineering patterns.**
+**Canonical reusable reference for backend + AI systems architecture.**  
+Reusable patterns, decision rubrics, CI/test templates, and architecture maps.  
+Not a product, not a finished deployment — a living reference that product repos build on.
 
-## 🚀 Quick Start
+## Quick start
 
 Need authentication? → `cp security/auth_framework.py your-project/`  
 Need caching? → `cp performance/caching.py your-project/`  
 Need CI/CD? → `cp cicd/test-pipeline.yml .github/workflows/`
 
-**Every file works standalone. Take what you need. Ship it.**
+Every module works standalone. Take what you need.
 
-## 🗺️ Portfolio Ecosystem
-
-This repository is the **foundation** of a portable engineering portfolio:
+## Portfolio ecosystem
 
 ```
 EPdacoder05/
-├── System-Design-Engineering-Universal-Reference  ← You are here (reference library)
+├── System-Design-Engineering-Universal-Reference  ← You are here (canonical reference)
+├── Jarvis-AI-Assistant                            ← Homelab intelligence (uses opsmemory, service_template)
+├── security-data-fabric                           ← Security data platform (uses security/, api/, database/)
+├── NullPointVector                                ← Security testing (uses security/, cicd/)
 ├── TF2S3-migration                                ← IaC automation (uses cicd/ templates)
 ├── finops-cost-control-as-code                    ← FinOps (uses ml/anomaly_detector.py patterns)
-├── NullPointVector                                ← Security platform (uses security/ patterns)
 ├── Sportsbook-aggregation                         ← Real-time analytics (uses patterns/ + api/)
 ├── incident-replay-tool                           ← ML prediction (uses ml/ + monitoring/)
 ├── ha-iot-stack                                   ← IoT infrastructure (uses cicd/ + Dockerfile)
 └── ha-ble-mqtt-bridge                             ← IoT bridge (uses cicd/ templates)
 ```
 
-Patterns from this library power every project in the ecosystem.
+Product repos own their executable logic. This repo owns the reusable foundation they build on. See `MULTI_REPO_DEPLOYMENT.md` for the ownership map.
 
-## 📚 Table of Contents
+## Table of Contents
 
+- [Backend + AI Systems Learning Path](#backend--ai-systems-learning-path)
+- [Multi-Agent RAG Workflow](#multi-agent-rag-workflow)
+- [CI / Testing Architecture](#ci--testing-architecture)
 - [Architecture Patterns](#-architecture-patterns)
 - [Security](#-security)
 - [API Development](#-api-development)
@@ -48,7 +53,87 @@ Patterns from this library power every project in the ecosystem.
 - [Engineering Tradeoffs](#-engineering-tradeoffs)
 - [Rolling Rubrics](#-rolling-rubrics)
 - [Performance & Operations](#-performance--operations)
+- [ECC Architecture Reference](#ecc-architecture-reference)
 - [Pentester — Ethical Hacking Reference](#-pentester--ethical-hacking-reference)
+
+---
+
+## Backend + AI Systems Learning Path
+
+End-to-end production architecture map. Each row answers: where this fits in a production system, and what repo should own it.
+
+| Layer | Reference file(s) | Production role | Owner |
+|-------|------------------|-----------------|-------|
+| Edge / API gateway | `api/cloudflare_platform.py`, `security/iac/cloudflare_terraform.tf` | WAF, geo-IP rate limiting, bot filtering, zero-trust access, TLS | This repo (reference) → product repo (deploy) |
+| Auth | `security/auth_framework.py`, `rubrics/SECURITY/OIDC_OAUTH2_QUICKREF.md` | JWT issuance/validation, RBAC, MFA, PKCE, token rotation | This repo (pattern) → product repo (configure) |
+| Service layer | `api/service_template.py`, `api/grpc_reference.py`, `api/graphql_reference.py` | REST, gRPC, GraphQL, idempotency, versioning | This repo (template) → product repo (extend) |
+| Async / queuing | `performance/async_patterns.py`, `patterns/service_patterns.py` | Fan-out, saga, circuit breaker, retry with backoff | This repo (pattern) → product repo (apply) |
+| Storage / ORM | `database/connection.py`, `database/model_patterns.py` | Async SQLAlchemy, UUID PKs, soft delete, audit trails | This repo (pattern) → product repo (schema) |
+| Vector retrieval / RAG | `database/vector_search.py`, `tools/opsmemory/` | pgvector embeddings, cosine similarity, RAG pipeline | This repo (primitive) → product repo (pipeline) |
+| Observability | `monitoring/observability.py` | Structured JSON logging, correlation IDs, metrics, SLA | This repo (pattern) → product repo (configure) |
+| CI / release gates | `.github/workflows/ci.yml`, `cicd/test-pipeline.yml` | lint → typecheck → unit → integration → e2e → security gate | This repo (template) → product repo (extend) |
+| Decision rubrics | `rubrics/MASTER_RUBRIC.md`, `TRADEOFFS.md` | Architecture decisions, scoring, 50+ tradeoff analyses | This repo (owns) |
+
+---
+
+## Multi-Agent RAG Workflow
+
+`tools/opsmemory/` is the memory/retrieval primitive for multi-agent systems.
+
+```
+ingest → redact → embed → retrieve → answer → evaluate → refactor → retest
+```
+
+| Stage | opsmemory component | Agent role |
+|-------|-------------------|------------|
+| ingest | `mcp/tools/ingest.py`, `connectors/` | Builder: pull raw data (GitHub, repos, manual) |
+| redact | `agent/redactor.py` | Builder: strip PII and secrets before embedding |
+| embed | `providers/embeddings/` (LiteLLM) | Builder: generate vectors, batch-insert via pgvector |
+| retrieve | `mcp/tools/query.py`, `database/vector_search.py` | Reviewer: semantic search, top-k with scores |
+| answer | `providers/llm/` (LiteLLM) | Reviewer/Refactorer: LLM call over retrieved context |
+| evaluate | `rubrics/MASTER_RUBRIC.md`, test suite | Reviewer: rubric score delta, test coverage delta |
+| refactor | `api/`, `patterns/` | Refactorer: apply reusable patterns |
+| retest | `.github/workflows/ci.yml` | Break-fixer + release gate: all runners must pass |
+
+### Agent roles
+
+| Agent | Responsibility | Validation gate required |
+|-------|---------------|-------------------------|
+| Builder | Implement from spec, ingest context | Unit tests pass |
+| Reviewer / Refactorer | Code review, rubric scoring, refactor | Unit + integration pass |
+| Break-fixer | Diagnose CI failure, patch without regression | Unit + integration + e2e pass |
+| Test runner | Execute all stages, report coverage | Unit + integration + e2e + security |
+| Release gate | Block merge on any failing stage | All gates pass |
+
+---
+
+## CI / Testing Architecture
+
+The CI gate is not "run pytest." It is a full engineering loop.
+
+```
+lint (ruff F401/F541/F841)
+  → typecheck (mypy: annotate nested dicts, explicit return types)
+    → unit tests  (pytest, fast, no I/O)
+      → integration tests  (pytest, real DB, mocked external)
+        → e2e tests  (pytest, full stack or staging)
+          → security scan  (bandit, pip-audit, gitleaks)
+            → [PASS] merge / [FAIL] → break-fixer agent
+```
+
+Post-failure refactor/retest loop:
+
+```
+CI failure
+  → break-fixer reads failure logs
+    → patches root cause (never suppresses lint/type errors)
+      → re-runs from lint stage
+        → regression check (existing tests still pass)
+          → rubric delta logged to rubrics/ROLLING_UPDATE_LOG.md
+```
+
+Base implementation: `.github/workflows/ci.yml`  
+Reusable templates: `cicd/ci-python.yml`, `cicd/test-pipeline.yml`, `cicd/security-scan.yml`
 
 ---
 
@@ -343,6 +428,29 @@ Async SQLAlchemy patterns with indexing strategies and semantic search.
 - ✅ Semantic search function with filtering
 
 **Apply to:** RAG systems, semantic search, recommendation engines
+
+---
+
+## 🧠 Vector Retrieval & RAG Primitive
+
+### [`tools/opsmemory/`](tools/opsmemory/)
+**Full RAG pipeline — the memory/retrieval primitive for multi-agent systems**
+- ✅ **Ingest** — GitHub connector, repo connector, manual ingest via MCP tool
+- ✅ **Redact** — PII/secret stripping before embedding (`agent/redactor.py`)
+- ✅ **Embed** — LiteLLM embedding providers (`providers/embeddings/`)
+- ✅ **Store** — SQLAlchemy + pgvector storage (`storage/`)
+- ✅ **Retrieve** — cosine similarity query, top-k with score filtering (`mcp/tools/query.py`)
+- ✅ **MCP server** — SSE and stdio transport (`mcp/server.py`)
+- ✅ **REST API** — FastAPI app for programmatic access (`api/app.py`)
+- ✅ **Auth** — API key gate (`auth.py`)
+- ✅ **Model registry** — LiteLLM model config (`providers/model_registry.yaml`)
+- ✅ **Docker Compose** — one-command startup (`docker/docker-compose.yml`)
+
+**Integration pattern** (`tools/opsmemory/integrations/jarvis/`) — shows how any assistant or orchestrator connects: query before responding, ingest outcome after responding. Reusable for any MCP consumer.
+
+**Apply to:** Multi-agent memory, context retrieval for LLM calls, semantic search over session history, cross-repo knowledge bases
+
+**Production ownership:** `tools/opsmemory/` stays here as the reusable primitive. Consumers (Jarvis, other agents) live in their own repos.
 
 ---
 
@@ -674,6 +782,31 @@ For production-ready Docker hardening patterns, see [`docker/DOCKER_SECURITY.md`
 - Universal security scanning workflow (CodeQL, Trivy, Gitleaks, SBOM)
 - Regular dependency updates via Dependabot
 - Production readiness checklist with SOC2/ISO27001 controls
+
+## ECC Architecture Reference
+
+ECC (external corpus / cross-cutting) contributes patterns that generalize well for backend/AI design. Only material that applies beyond ECC's product context lives here.
+
+### Patterns extracted here from ECC
+
+| Pattern | File | Original domain | Generalizes to |
+|---------|------|----------------|----------------|
+| Entity identity normalization | `api/carrier_identity.py` | Insurance carrier lookup | Any entity-resolution system with fuzzy matching and confidence tiers |
+| DB-backed type catalog | `database/catalog.py` | Parts inventory | Any soft-validated type registry — new types via DB insert, not code deploy |
+| Medallion ETL | `patterns/medallion_architecture.py` | Data lake ingestion | Any Bronze→Silver→Gold pipeline with schema enforcement |
+
+### What stays in the ECC product repo
+
+- Carrier-specific business rules and scoring thresholds
+- Insurer ID tenant mapping and per-insurer_id isolation config
+- ECC-specific schema migrations and audit consumers
+
+### When to pull an ECC pattern here
+
+Pull it here when it can be used in at least two projects without modification.
+Keep it in the ECC repo when it encodes product-specific business logic.
+
+---
 
 ## 📄 License
 

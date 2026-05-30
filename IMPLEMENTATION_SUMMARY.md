@@ -1,289 +1,148 @@
-# Implementation Summary: AI-Era Security Enhancements
+# Architecture Summary: Backend + AI Systems Reference
 
-## Overview
+## What this repo is
 
-Successfully implemented comprehensive security enhancements addressing DDoS, ReDoS, and three new AI-era attack patterns (28, 29, 30) as discussed in the problem statement.
+A canonical, lightweight reference for backend and AI systems architecture.
+It is not a product, not a finished deployment, and not a one-time deliverable.
+Every file here is either a reusable pattern, a decision rubric, an architecture diagram, or a CI/test template.
 
-## Changes Made
+---
 
-### 1. New File: `security/ai_era_security.py` (739 lines)
+## Architecture layers and their reference files
 
-**Pattern 28: Prompt Injection Detection**
-- Detects 6 types of injection: direct, indirect, system override, jailbreak, context manipulation
-- Risk scoring system (0.0 - 1.0)
-- Prompt sanitization
-- Instruction hierarchy enforcement
-- Tested with 6 unit tests ✅
+### 1. Edge / API gateway
+- `api/cloudflare_platform.py` — CORS builder, security headers, geo-IP rate limiter, Workers/Durable Objects templates, Turnstile, D1/KV/R2/Queues feature matrix
+- `security/iac/cloudflare_terraform.tf` — full Terraform config: TLS, WAF, OWASP CRS, geo-IP block rules, HSTS, rate limits, R2, Access, Tunnel, DNS, DMARC
 
-**Pattern 29: AI Package Hallucination Protection**
-- Detects suspicious package name patterns (-pro, -ultimate, -enterprise, etc.)
-- Typosquatting detection
-- Whitelist validation
-- Optional PyPI existence checking
-- Tested with 5 unit tests ✅
+**Production role:** Entry point. All traffic hits the edge before reaching the origin. WAF and bot filtering run here. Auth enforcement starts here via Cloudflare Access or JWT header inspection.
 
-**Pattern 30: AI Agent Identity & Access**
-- Agent-specific permissions and scopes
-- Human-in-the-loop for high-regret actions
-- Approval workflow system
-- Complete audit trail
-- Rate limiting per agent
-- Tested with 7 unit tests ✅
+### 2. Auth
+- `security/auth_framework.py` — JWT (access + refresh + rotation), RBAC, MFA/TOTP, API keys with rate limiting
+- `rubrics/SECURITY/OIDC_OAUTH2_QUICKREF.md` — canonical OIDC vs OAuth2 decision rule, PKCE, audience/issuer validation, least-privilege scopes
 
-**Enhanced ReDoS Protection**
-- Thread-based timeout (actually stops execution, not just measures time)
-- Works cross-platform
-- Prevents catastrophic backtracking
-- SafeRegexMatcher class with match(), search(), findall()
-- Tested with 6 unit tests ✅
+**Production role:** Every inbound request must carry a verifiable identity. Auth framework handles token issuance; OIDC quick-ref covers federated identity and machine-to-machine flows.
 
-### 2. Enhanced File: `security/zero_day_shield.py`
+### 3. Service layer
+- `api/service_template.py` — FastAPI template: request ID middleware, CORS, security headers, health/ready endpoints, structured error responses, rate limiting, API versioning, OpenAPI
+- `api/graphql_reference.py` — Strawberry + FastAPI: DataLoader (N+1 elimination), depth/complexity limits, JWT context, Relay pagination, subscriptions, Apollo Federation, APQ
+- `api/grpc_reference.py` — all four RPC patterns, JWT interceptor, mTLS, retry policy, deadline propagation, health checking, reflection service
+- `api/websocket_reference.py` — WebSocket room manager, JWT on upgrade, per-connection rate limiting, Redis Pub/Sub bridge, SSE, HMAC webhook verification
+- `api/idempotency.py` — idempotency key pattern for safe retries
+- `api/rate_limiter.py` — token bucket + sliding window (both O(1)), RateLimiterRegistry per carrier/tenant
 
-- Updated `SecureValidator.validate_with_timeout()` to use thread-based timeout
-- Now actually prevents ReDoS attacks by running regex in separate daemon thread
-- Thread is abandoned after timeout, preventing CPU pegging
+**Production role:** Choose the protocol based on consumer: REST for public/third-party, gRPC for internal high-throughput, GraphQL for flexible BFF, WebSocket/SSE for real-time push.
 
-### 3. New File: `SECURITY_PATTERNS.md` (530 lines)
+### 4. Async jobs / event-driven
+- `patterns/service_patterns.py` — circuit breaker (closed/open/half-open), retry with exponential backoff + jitter, fan-out/fan-in, saga (orchestration-based), all async with httpx
+- `performance/async_patterns.py` — semaphore-based concurrency limiting, batch processing, async context managers, `asyncio.gather()` with error handling
 
-Comprehensive documentation covering:
-- All 30 security patterns (27 classic + 3 AI-era)
-- Attack vectors and mitigations for each
-- Code examples
-- Implementation guide
-- DDoS vs ReDoS explanation
-- Quick start guide
+**Production role:** Async jobs decouple write path from read path. Circuit breakers prevent cascading failures. Saga handles distributed transactions without two-phase commit.
 
-### 4. New File: `testing/test_ai_security.py` (449 lines)
+### 5. Storage / ORM
+- `database/connection.py` — async SQLAlchemy engine, connection pooling, session factory, health checks
+- `database/model_patterns.py` — UUID PKs, audit mixin (created/updated/created_by), soft delete, composite indexes, relationship patterns
+- `database/catalog.py` — part-type catalog backed by DB (PartTypeCatalog), soft validation via warn-not-reject
 
-- 25 comprehensive unit tests
-- All tests passing (35.78s runtime)
-- Tests cover all three new patterns plus ReDoS protection
-- Validates both positive and negative cases
+**Production role:** Async SQLAlchemy + UUID PKs + audit trails are the standard ORM baseline. Soft delete avoids data loss. Composite indexes carry query plans.
 
-### 5. New File: `examples/ai_security_integration.py` (396 lines)
+### 6. Vector retrieval / RAG
+- `database/vector_search.py` — pgvector: embedding storage, cosine similarity search, embedding cache, batch insertion, semantic search with filtering
+- `tools/opsmemory/` — full RAG pipeline: ingest → redact → embed → retrieve → MCP server, connectors (GitHub), providers (LiteLLM embeddings + LLM), storage (SQLAlchemy + pgvector)
 
-Production-ready integration example showing:
-- How to use all security patterns together
-- Real-world usage scenarios
-- Agent registration and management
-- Prompt validation workflow
-- Package validation workflow
-- High-regret action approval process
+**Production role:** pgvector turns Postgres into a vector store — no separate service required for most workloads. opsmemory provides the complete memory/retrieval primitive that agents call via MCP.
 
-### 6. Updated File: `README.md`
+### 7. Observability
+- `monitoring/observability.py` — structured JSON logging with correlation IDs, metrics (counters/gauges/histograms), SLA tracking (uptime, latency percentiles), alert thresholds
 
-- Added section for `security/ai_era_security.py`
-- Updated `security/zero_day_shield.py` description
-- Documented all new features
+**Production role:** Correlation IDs link logs across service calls. SLA tracking feeds error budget calculations. Prometheus scrape targets emit the Golden Signals (latency, traffic, errors, saturation).
 
-### 7. Updated File: `security/__init__.py`
+### 8. CI / release gates
+- `.github/workflows/ci.yml` — parallel gate: lint (ruff), typecheck (mypy), unit tests (pytest), coverage
+- `cicd/ci-python.yml` — reusable Python CI template
+- `cicd/test-pipeline.yml` — matrix testing (Python 3.10/3.11/3.12), coverage artifact upload
+- `cicd/security-scan.yml` — CodeQL, Trivy, pip-audit, safety, bandit, gitleaks, SBOM, weekly schedule
 
-- Added exports for all new security classes
-- Makes imports cleaner: `from security import PromptInjectionDetector`
+**Production role:** Every PR must pass lint + typecheck + unit before merge. Security scan runs weekly and on demand. Matrix testing catches version regressions early.
 
-## Test Results
+---
+
+## Multi-agent RAG workflow
+
+Defined as a repo-level architecture. `tools/opsmemory/` is the memory/retrieval primitive.
 
 ```
-✅ 25/25 tests passing
-⏱️  Total runtime: 35.78 seconds
-📊 Coverage: All new code paths tested
+ingest → redact → embed → retrieve → answer → evaluate → refactor → retest
 ```
 
-### Test Breakdown
-- Prompt Injection Detection: 6 tests
-- AI Package Validation: 5 tests  
-- Agent Access Control: 7 tests
-- Enhanced ReDoS Protection: 6 tests
-- Integration Validator: 1 test
+| Stage | opsmemory component | Agent role |
+|-------|-------------------|------------|
+| ingest | `mcp/tools/ingest.py`, `connectors/` | Builder: pull raw data from GitHub, repos, manual input |
+| redact | `agent/redactor.py` | Builder: strip PII and secrets before embedding |
+| embed | `providers/embeddings/` (LiteLLM) | Builder: generate vectors, batch insert via pgvector |
+| retrieve | `mcp/tools/query.py`, `database/vector_search.py` | Reviewer: semantic search, return top-k with scores |
+| answer | `providers/llm/` (LiteLLM) | Reviewer/Refactorer: LLM call over retrieved context |
+| evaluate | `rubrics/MASTER_RUBRIC.md`, test suite | Reviewer: rubric score delta, test coverage delta |
+| refactor | service layer + patterns | Refactorer: apply patterns from `api/`, `patterns/` |
+| retest | CI gate | Break-fixer + release gate: all runners must pass |
 
-## Key Features
+### Agent roles and validation stages
 
-### ReDoS Protection (The Main Issue)
+| Agent | Responsibility | Validation stage |
+|-------|---------------|-----------------|
+| Builder | Implement from spec, ingest context | Unit tests pass |
+| Reviewer/Refactorer | Code review, rubric scoring, refactor | Unit + integration pass |
+| Break-fixer | Diagnose CI failure, patch without regression | Unit + integration + e2e pass |
+| Test runner | Execute all stages, report coverage | Unit + integration + e2e + security |
+| Release gate | Block merge on any failing gate | Unit + integration + e2e + security + regression |
 
-**Problem:** Evil regex like `(a+)+b` causes exponential backtracking, hanging indefinitely.
+---
 
-**Solution:**
-```python
-from security.ai_era_security import SafeRegexMatcher
+## CI/testing architecture (full engineering loop)
 
-matcher = SafeRegexMatcher(timeout=1.0)
-result = matcher.match(r"(a+)+b", "a" * 28 + "c")
-# Returns None after 1 second - thread abandoned, CPU saved
+The CI gate is not "run pytest." It is:
+
+```
+lint (ruff F401/F541/F841)
+  → typecheck (mypy: annotate nested dicts, explicit return types)
+    → unit tests (pytest, fast, no I/O)
+      → integration tests (pytest, real DB, mock external)
+        → e2e tests (pytest, full stack or staging env)
+          → security scan (bandit, pip-audit, gitleaks)
+            → [PASS] merge allowed / [FAIL] → break-fixer agent
 ```
 
-**How it works:**
-1. Regex runs in separate daemon thread
-2. Main thread waits with timeout
-3. If timeout expires, thread is abandoned (daemon threads don't prevent exit)
-4. CPU is not pegged at 100%
+Post-failure troubleshooting loop:
 
-### Prompt Injection Protection
-
-**Detects:**
-- "Ignore all previous instructions"
-- "### SYSTEM INSTRUCTIONS: ..."
-- "Enter DAN mode"
-- System override attempts
-- Context manipulation
-
-**Example:**
-```python
-from security import PromptInjectionDetector
-
-detector = PromptInjectionDetector(strict_mode=True)
-result = detector.detect(user_prompt)
-
-if not result.is_safe:
-    # Block injection attempt
-    print(f"Risk score: {result.risk_score}")
+```
+CI failure
+  → break-fixer reads failure logs
+    → patches root cause (never suppresses lint/type errors)
+      → re-runs from lint stage
+        → regression check (existing tests still pass)
+          → rubric delta logged in rubrics/ROLLING_UPDATE_LOG.md
 ```
 
-### Package Hallucination Protection
+See `.github/workflows/ci.yml` for the base parallel gate implementation.
 
-**Detects:**
-- Non-existent packages suggested by AI
-- Suspicious patterns: `-pro`, `-ultimate`, `-enterprise`
-- Typosquatting: `requestes` vs `requests`
+---
 
-**Example:**
-```python
-from security import AIPackageValidator
+## ECC (external corpus / cross-cutting) architecture reference
 
-validator = AIPackageValidator(whitelist={"requests", "fastapi"})
-result = validator.validate_package("fastapi-security-pro")
+ECC contributes the following generalizable patterns for backend/AI design:
 
-if not result.is_valid:
-    print(f"Warnings: {result.warnings}")
-```
+- **Carrier identity normalization** — `api/carrier_identity.py`: data-driven catalog, fuzzy matching with confidence tiers (≥0.90 accept / 0.72–0.89 review / <0.72 reject), per-tenant isolation, SHA-256 hash-chained audit trail
+- **Part-type catalog** — `database/catalog.py`: soft validation (warn, not reject), DB-backed type registry, type_code restricted to `[a-z0-9_]`, new types via DB insert not code deploy
+- **Medallion architecture** — `patterns/medallion_architecture.py`: Bronze→Silver→Gold ETL, schema enforcement at each tier, metadata tracking
 
-### Agent Access Control
+Only patterns that generalize to any backend/AI system are kept here. Product-specific ECC implementation details live in the ECC product repo.
 
-**Features:**
-- Agent-specific OIDC identities
-- Scope-based permissions
-- Human approval for high-regret actions
-- Complete audit trail
+---
 
-**Example:**
-```python
-from security import AgentAccessControl, AgentIdentity, AgentPermission
+## Jarvis migration record
 
-control = AgentAccessControl()
+`tools/jarvis/` — homelab intelligence MCP server — has been extracted to `EPdacoder05/Jarvis-AI-Assistant`.
 
-agent = AgentIdentity(
-    agent_id="data-processor",
-    permissions={AgentPermission.READ, AgentPermission.WRITE},
-    scope=["database.analytics"],
-    requires_human_approval=True
-)
-control.register_agent(agent)
+See `tools/jarvis/MIGRATION.md` for the inventory and pointer.
 
-# Check before allowing action
-if control.check_permission("data-processor", "delete", "database.analytics"):
-    # Allow action
-    pass
-```
+The reusable MCP integration pattern (how opsmemory connects to an external consumer via MCP) remains in `tools/opsmemory/mcp/` and `tools/opsmemory/integrations/jarvis/` as a reference integration example.
 
-## Addressing the Problem Statement
-
-### ✅ ReDoS/DDoS Protection
-
-**ReDoS (Application Layer):**
-- ✅ Thread-based timeout implementation
-- ✅ Prevents catastrophic backtracking
-- ✅ Cross-platform compatible
-- ✅ Tested with evil regex patterns
-
-**DDoS (Network Layer):**
-- ⚠️  Requires infrastructure protection (Cloudflare, AWS Shield)
-- ✅ Application-layer rate limiting exists (circuit_breaker.py)
-- ✅ Documentation added explaining the difference
-
-### ✅ Pattern 28: Prompt Injection
-
-- ✅ Direct injection detection
-- ✅ Indirect injection detection
-- ✅ System override detection
-- ✅ Jailbreak detection
-- ✅ Risk scoring
-- ✅ Sanitization
-- ✅ Instruction hierarchy
-
-### ✅ Pattern 29: AI Package Hallucination
-
-- ✅ Suspicious pattern detection
-- ✅ Typosquatting detection
-- ✅ Whitelist validation
-- ✅ PyPI existence checking
-- ✅ Warnings system
-
-### ✅ Pattern 30: AI Agent Identity & Access
-
-- ✅ Agent registration
-- ✅ Permission checking
-- ✅ Scope validation
-- ✅ Human-in-the-loop approval
-- ✅ Audit logging
-- ✅ Rate limiting support
-
-## Production Readiness
-
-All implementations are:
-- ✅ Tested with comprehensive unit tests
-- ✅ Documented with examples
-- ✅ Ready for production use
-- ✅ Following existing code patterns
-- ✅ Type-hinted for IDE support
-- ✅ Error handling included
-
-## Next Steps (Optional Enhancements)
-
-1. **RE2 Library Integration** (for even better ReDoS protection)
-   - Linear-time regex engine
-   - Mathematically prevents backtracking
-   
-2. **RASP Integration** (Runtime Application Self-Protection)
-   - Runtime monitoring
-   - Automatic threat blocking
-
-3. **Passwordless Auth** (WebAuthn/Passkeys)
-   - Eliminate credential attacks
-   - Better than passwords
-
-4. **Infrastructure DDoS**
-   - Deploy behind Cloudflare/AWS Shield
-   - Configure WAF rules
-
-## Files Changed
-
-- `security/ai_era_security.py` (new, 739 lines)
-- `security/zero_day_shield.py` (enhanced)
-- `security/__init__.py` (updated exports)
-- `SECURITY_PATTERNS.md` (new, 530 lines)
-- `README.md` (updated)
-- `testing/test_ai_security.py` (new, 449 lines)
-- `examples/ai_security_integration.py` (new, 396 lines)
-
-**Total:** 3 files modified, 4 files created, ~2,100 lines of new code and documentation
-
-## Validation
-
-All changes have been validated:
-- ✅ Unit tests pass (25/25)
-- ✅ Demos run successfully
-- ✅ Integration example works
-- ✅ Documentation complete
-- ✅ Code follows project patterns
-- ✅ No breaking changes
-
-## Summary
-
-This implementation provides **bulletproof** security for AI-era applications by:
-1. Actually preventing ReDoS attacks (not just detecting them)
-2. Protecting against prompt injection with multi-pattern detection
-3. Preventing AI package hallucination attacks
-4. Enforcing strict agent access controls with human oversight
-5. Providing comprehensive documentation and examples
-6. Including 25 passing unit tests
-
-The implementation is **production-ready** and can be deployed immediately.

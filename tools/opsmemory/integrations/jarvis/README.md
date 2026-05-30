@@ -1,3 +1,9 @@
+# opsmemory MCP Integration Pattern — Reference
+
+> **Note:** The Jarvis product (homelab intelligence MCP server, vault, pipelines) has been extracted to `EPdacoder05/Jarvis-AI-Assistant`. This directory is the **reusable MCP client integration pattern** — it shows how any assistant or orchestrator connects to `tools/opsmemory/` via the REST/MCP API. It is not Jarvis-specific.
+
+---
+
 # Jarvis MCP Client Integration
 
 Reusable scaffolding for connecting a Jarvis-style assistant / orchestrator
