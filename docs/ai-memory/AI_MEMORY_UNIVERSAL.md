@@ -37,6 +37,7 @@ Canonical source for the operating rules that apply across this standards pack.
 **File discipline**
 - No new files for agent notes, context memory, or planning — update existing rubric/log files in place.
 - Edit files in place; never recreate a file that already exists (data-loss risk).
+- Temporary helper files must live under `/tmp`, never in repo.
 - Encode lessons as table rows or checklist items in the relevant domain checklist.
 - Log every rubric change in `rubrics/ROLLING_UPDATE_LOG.md` per the entry template.
 
@@ -45,6 +46,34 @@ Canonical source for the operating rules that apply across this standards pack.
 - Make the smallest change that fully solves the problem; do not fix unrelated issues.
 - Use existing libraries; do not add or upgrade dependencies unless required.
 - No LLM in the v1 core synchronous path (authn/authz, transaction commit, payment, p95-critical logic).
+- Run existing lint/test gates before and after every code change.
+
+**Supply chain (hard gates)**
+- Cross-reference every import against the committed lockfile on every PR; reject if new transitive packages appear without explicit approval.
+- Restrict lifecycle scripts in CI: `npm ci --ignore-scripts` / `pip install --no-build-isolation` or equivalent.
+- Import specific sub-modules, not whole packages: `from x import y` / `import { y } from 'x'` — CI bot must flag whole-package imports.
+- Rotate all secrets immediately if any affected package version was installed during a known compromise window.
+- Valid SLSA provenance is necessary but not sufficient — compromised CI can produce valid-looking provenance.
+- See [AI_SUPPLY_CHAIN_SECURITY_STANDARD.md](./AI_SUPPLY_CHAIN_SECURITY_STANDARD.md) and [AI_DEPENDENCY_MINIMIZATION_STANDARD.md](./AI_DEPENDENCY_MINIMIZATION_STANDARD.md).
+
+**Error contract (hard gates)**
+- All error responses must follow RFC 7807 Problem Details JSON: `type`, `title`, `status`, `detail`, `instance`.
+- Never surface stack traces, SQL, internal module names, or topology in client-visible responses.
+- 4xx = client/actionable fault; 5xx = server/operator fault. Never `200` with hidden error payload.
+- See [AI_ERROR_HANDLING_CLIENT_CONTRACT.md](./AI_ERROR_HANDLING_CLIENT_CONTRACT.md).
+
+**Logging / observability (hard gates)**
+- Only structured JSON logs in production paths — no `console.log`, `print()`, or unstructured strings.
+- CI must run an AST check rejecting bare `console.log` / `print` in production code.
+- Emit RED metrics (Rate, Errors, Duration) at every service boundary; no other metrics are required at minimum.
+- Backend logs are for operators; client error responses are for callers — never conflate.
+- See [AI_OBSERVABILITY_MINIMAL_LOGGING_STANDARD.md](./AI_OBSERVABILITY_MINIMAL_LOGGING_STANDARD.md).
+
+**Health checks**
+- `/health` (liveness): process-only, no DB/cache calls, responds < 200ms.
+- `/ready` (readiness): queries local DB connection and cache to confirm connectivity; no business logic.
+- Both return structured JSON `{"status": "ok"|"degraded"|"down", "checks": {...}}`.
+- See [AI_HEALTHCHECK_READINESS_LIVENESS_STANDARD.md](./AI_HEALTHCHECK_READINESS_LIVENESS_STANDARD.md).
 
 **CI gates (hard blockers)**
 - ruff: F401 unused imports, F541 f-string without placeholders, F841 unused locals.
