@@ -27,6 +27,35 @@ Canonical source for the operating rules that apply across this standards pack.
 - Runtime safety: [error contract](./AI_ERROR_HANDLING_CLIENT_CONTRACT.md), [observability](./AI_OBSERVABILITY_MINIMAL_LOGGING_STANDARD.md), [health checks](./AI_HEALTHCHECK_READINESS_LIVENESS_STANDARD.md)
 - Delivery safety: [supply chain](./AI_SUPPLY_CHAIN_SECURITY_STANDARD.md), [dependency minimization](./AI_DEPENDENCY_MINIMIZATION_STANDARD.md), [SBOM/provenance/signing](./AI_SBOM_PROVENANCE_SIGNING_STANDARD.md), [CI/CD gates](./AI_CI_CD_ENFORCEMENT_GATES.md)
 
+## Agent Operating Conventions
+
+**Token / output discipline**
+- Low token density: answer directly, no filler ("Great question!", "Certainly!", "As an AI…"), no emoji.
+- Scope responses to what changed; do not restate the full prior conversation.
+- No placeholder prose in production code paths.
+
+**File discipline**
+- No new files for agent notes, context memory, or planning — update existing rubric/log files in place.
+- Edit files in place; never recreate a file that already exists (data-loss risk).
+- Encode lessons as table rows or checklist items in the relevant domain checklist.
+- Log every rubric change in `rubrics/ROLLING_UPDATE_LOG.md` per the entry template.
+
+**Engineering discipline**
+- No over-engineering: new abstractions, wrappers, config layers, or event hops must be justified by repeated need, not speculative flexibility.
+- Make the smallest change that fully solves the problem; do not fix unrelated issues.
+- Use existing libraries; do not add or upgrade dependencies unless required.
+- No LLM in the v1 core synchronous path (authn/authz, transaction commit, payment, p95-critical logic).
+
+**CI gates (hard blockers)**
+- ruff: F401 unused imports, F541 f-string without placeholders, F841 unused locals.
+- mypy: annotate nested dicts (`Dict[str,Dict[str,str]]`), explicit return types, type all `.get()` locals.
+- Gate order: lint → typecheck → test → build; each job declares `needs:` on the prior hard gate.
+- Cross-repo CI failures → add avoid/correct pair to the relevant domain checklist; cite source repo + PR, no new files.
+
+**Memory / learning**
+- When a pattern causes a CI failure in any repo, add the avoid/correct pair to the relevant domain checklist here.
+- Do not store secrets, credentials, or personal data in memory.
+
 ## Definition of Done
 - Topic ownership is unambiguous.
 - Cross-links replace duplicate prose.
