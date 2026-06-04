@@ -49,6 +49,8 @@ This directory is the canonical backend/platform engineering standards pack for 
 - Edit the canonical file first, then update inbound links only if scope changed.
 - Keep language short: checklist, guardrail, anti-pattern, definition of done.
 - Generalize lessons into standards; do not copy repo-specific incident prose into this pack.
+- Prefer updating an existing canonical file over adding another memory/context file for nearby guidance.
+- Optimize for maintainer comprehension: prefer the smallest rule set and shortest checklist that still preserves safety.
 - Preserve the default: monthly partitioning for high-write and event tables, with precreate, retention, and partition-health jobs.
 - Preserve the v1 rule: no LLM calls in the core synchronous path for auth, request admission, transaction commit, or money movement.
 - Use [AI_CONFIRMATION_PROTOCOL.md](./AI_CONFIRMATION_PROTOCOL.md) for destructive or high-blast-radius changes.

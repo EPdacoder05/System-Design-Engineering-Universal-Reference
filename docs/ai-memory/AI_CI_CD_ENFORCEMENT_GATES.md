@@ -12,13 +12,16 @@ Canonical source for delivery gates and remediation principles.
 
 ## Hard Rules
 - Downstream build and deploy steps must depend on upstream gates.
+- Verify workflow triggers, branch/path filters, runner selection, permissions, and event payload assumptions as part of the gate design.
 - Auth hardening, data-loss prevention, and container hardening changes require tests plus security validation.
 - CI exceptions need explicit approver, reason, expiry, and compensating control.
 - Failed gates must be visible; do not silently skip critical downstream jobs.
+- Required checks must map to real blocking jobs; skipped or detached jobs do not count as enforcement.
 
 ## Required Remediation Themes
 - Auth hardening: fail closed, validate trust boundaries, keep privileged flows tested.
 - CI gates: make critical failures blocking, not advisory by accident.
+- Workflow integrity: verify runners, `needs`, permissions, and payload-driven conditionals before trusting green status.
 - Container hardening: non-root, minimal image, pinned inputs, health checks.
 - DLQ/no-silent-drop: async failure handling must be observable and enforceable.
 

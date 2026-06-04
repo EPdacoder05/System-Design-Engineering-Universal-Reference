@@ -4,7 +4,9 @@ Canonical source for the operating rules that apply across this standards pack.
 
 ## Core Rules
 - Use one canonical standard per topic; link instead of copying.
+- Prefer the simplest design the owner can explain from memory; readability and explainability are safety properties.
 - Prefer explicit ownership, reversibility, and observable failure modes.
+- New wrappers, config layers, event hops, or abstractions must earn their keep with repeated need, not speculative flexibility.
 - No LLM in the v1 core synchronous path: authn/authz, request admission, transaction commit, payment/money movement, or p95-critical request logic.
 - Default to async decoupling for expensive, non-deterministic, or human-reviewable work.
 - Default to monthly partitioning for high-write and event tables; yearly is an exception that must be justified.
