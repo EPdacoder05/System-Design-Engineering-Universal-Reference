@@ -94,6 +94,7 @@ jobs:
       - name: Run pytest when tests exist
         shell: bash
         run: |
+          # Detects tests in: tests/, testing/, test_*.py, *_test.py
           if find . -type f \( -path './tests/*' -o -path './testing/*' -o -name 'test_*.py' -o -name '*_test.py' \) | grep -q .; then
             pytest --cov=. --cov-report=xml --cov-report=term-missing -v
           else
@@ -164,7 +165,7 @@ jobs:
           if [ -f package-lock.json ]; then
             npm ci --ignore-scripts
             npm audit --audit-level=high || {
-              echo "npm audit found HIGH/CRITICAL issues (advisory in this template)."
+              echo "npm audit found HIGH/CRITICAL vulnerabilities. Review the output above and address them before merging."
             }
           else
             echo "No package-lock.json found; skipping npm audit."
