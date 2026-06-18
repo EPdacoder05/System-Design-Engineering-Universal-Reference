@@ -78,7 +78,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
+          cache: 'pip'
 
       - name: Install test dependencies
         shell: bash
@@ -163,11 +163,12 @@ jobs:
         run: |
           if [ -f package-lock.json ]; then
             npm ci --ignore-scripts
-            npm audit --audit-level=high
+            npm audit --audit-level=high || {
+              echo "npm audit found HIGH/CRITICAL issues (advisory in this template)."
+            }
           else
             echo "No package-lock.json found; skipping npm audit."
           fi
-        continue-on-error: true
 
   gitleaks:
     name: Secret scan (gitleaks)
@@ -207,7 +208,7 @@ jobs:
         run: |
           DOCKERFILE="${{ steps.dockerfile.outputs.path }}"
 
-          if grep -Eq '^FROM .+:latest([[:space:]]|$)' "$DOCKERFILE"; then
+          if grep -Eq '^FROM[[:space:]]+[^[:space:]]+:latest([[:space:]]|$)' "$DOCKERFILE"; then
             echo "::error::$DOCKERFILE uses :latest. Pin an explicit version or digest."
             exit 1
           fi
@@ -222,7 +223,7 @@ jobs:
             exit 1
           fi
 
-          if ! grep -Eq '^FROM .+@sha256:' "$DOCKERFILE"; then
+          if grep -E '^FROM[[:space:]]+' "$DOCKERFILE" | grep -Fvq '@sha256:'; then
             echo "::warning::$DOCKERFILE should pin base images by digest when promoting to release."
           fi
 
