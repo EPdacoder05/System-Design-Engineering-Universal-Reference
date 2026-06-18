@@ -11,7 +11,7 @@
 
 Need authentication? → `cp security/auth_framework.py your-project/`  
 Need caching? → `cp performance/caching.py your-project/`  
-Need CI/CD? → `cp cicd/test-pipeline.yml .github/workflows/`
+Need CI/CD? → `cp cicd/test-pipeline.yml .github/workflows/ci.yml`
 
 **Every file works standalone. Take what you need. Ship it.**
 
@@ -351,13 +351,14 @@ Async SQLAlchemy patterns with indexing strategies and semantic search.
 GitHub Actions workflows and infrastructure-as-code templates.
 
 ### [`cicd/test-pipeline.yml`](cicd/test-pipeline.yml)
-**GitHub Actions CI template**
-- ✅ Matrix testing (Python 3.10, 3.11, 3.12)
-- ✅ Linting (ruff/flake8)
-- ✅ Type checking (mypy)
-- ✅ Test execution (pytest with coverage)
-- ✅ Coverage reporting
-- ✅ Artifact upload
+**Unified PR CI template**
+- ✅ Single workflow / single PR check suite
+- ✅ Parallel Python lint, mypy, pytest, Bandit, pip-audit
+- ✅ Optional Node.js audit when `package.json` exists
+- ✅ Gitleaks secret scanning
+- ✅ Optional Docker hardening gate + image build when a Dockerfile exists
+- ✅ Copy-paste ready: `cp cicd/test-pipeline.yml .github/workflows/ci.yml`
+- ✅ Pair with [`docker/DOCKER_SECURITY.md`](docker/DOCKER_SECURITY.md) and [`cicd/Dockerfile`](cicd/Dockerfile) for hardened container defaults
 
 ### [`cicd/security-scan.yml`](cicd/security-scan.yml)
 **Weekly security scanning**
@@ -629,7 +630,7 @@ cd System-Design-Engineering-Universal-Reference
 # Copy what you need to your project
 cp security/auth_framework.py ../my-project/
 cp api/service_template.py ../my-project/
-cp cicd/test-pipeline.yml ../my-project/.github/workflows/
+cp cicd/test-pipeline.yml ../my-project/.github/workflows/ci.yml
 
 # Install dependencies for modules you're using
 pip install fastapi pydantic python-jose
