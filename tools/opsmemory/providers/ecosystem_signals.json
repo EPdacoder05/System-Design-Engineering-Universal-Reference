@@ -1,26 +1,26 @@
 {
   "schema_version": "1.1",
-  "last_checked_at": "2026-08-17T07:42:00.621581+00:00",
+  "last_checked_at": "2026-08-24T07:21:51.476293+00:00",
   "policy": {
     "berri_role": "upstream dependency source of truth \u2014 PyPI package source",
     "openhands_role": "ecosystem signal / integration pattern observer \u2014 NOT a runtime dependency source"
   },
   "litellm_upstream": {
-    "latest_release_tag": "v1.97.0",
-    "latest_release_date": "2026-08-16T02:51:04Z",
-    "release_url": "https://github.com/BerriAI/litellm/releases/tag/v1.97.0",
-    "main_branch_sha": "bc6e7df05b018eefe6c7293790ca3f4de38709ac",
-    "main_branch_updated": "2026-08-16T01:00:01Z"
+    "latest_release_tag": "v1.98.0",
+    "latest_release_date": "2026-08-23T00:28:24Z",
+    "release_url": "https://github.com/BerriAI/litellm/releases/tag/v1.98.0",
+    "main_branch_sha": "947dbbf0298eecd3d226f765d4a4fb7ea3fd2551",
+    "main_branch_updated": "2026-08-22T22:24:27Z"
   },
   "openhands_fork": {
     "head_sha": "8a3a0f4db13d2090821b46c56dd3a680eae6e0a2",
     "last_updated": "2026-08-02T19:45:00Z",
-    "pushed_at": "2026-08-17T00:10:41Z",
+    "pushed_at": "2026-08-24T00:11:00Z",
     "open_issues_count": 1,
     "fork_of": "BerriAI/litellm",
     "role": "ecosystem_signal_only",
     "commits_behind": 0,
-    "commits_ahead": 13018
+    "commits_ahead": 14096
   },
   "openhands_watched_files": {
     "litellm/__init__.py": {
