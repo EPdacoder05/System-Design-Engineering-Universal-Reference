@@ -1,465 +1,159 @@
-# 🚀 Multi-Repository Security Deployment Guide
+# Multi-Repo Ownership and Migration Map
 
-**Date:** 2026-02-11  
-**Purpose:** Deploy comprehensive security to all EPdacoder05 repositories
+**Purpose:** Define what lives where, who owns it, and how migrations work.  
+This is an architecture ownership document, not a copy-paste deployment guide.
 
 ---
 
-## 📋 Target Repositories
+## Repository roles
 
-### 1. NullPointVector
-**Repository:** https://github.com/EPdacoder05/NullPointVector  
-**Type:** Security Testing Framework  
-**Priority:** HIGH
+| Repository | Role | Owns |
+|------------|------|------|
+| `EPdacoder05/System-Design-Engineering-Universal-Reference` | **Canonical reference** | Reusable patterns, templates, rubrics, architecture maps |
+| `EPdacoder05/Jarvis-AI-Assistant` | **Jarvis product** | MCP server, vault, dashboards, homelab event pipelines |
+| `EPdacoder05/security-data-fabric` | **Security data product** | ECC carrier identity, audit pipelines, security platform |
+| `EPdacoder05/NullPointVector` | **Security testing platform** | Offensive/defensive security tooling, pentest workflows |
+| `EPdacoder05/finops-cost-control-as-code` | **FinOps** | Cost anomaly detection deployment, AWS resource management |
+| `EPdacoder05/incident-replay-tool` | **Incident ML** | Incident prediction, replay tooling |
+| `EPdacoder05/ha-iot-stack` | **IoT** | Home automation stack, HA + MQTT deployment |
+| `EPdacoder05/ha-ble-mqtt-bridge` | **IoT bridge** | BLE-to-MQTT bridge firmware and deployment |
+| `EPdacoder05/TF2S3-migration` | **IaC automation** | Terraform-to-S3 migration tooling |
 
-#### Files to Copy
+---
+
+## What each product repo imports from this repo
+
+Each product repo should **reference** these patterns, not copy them wholesale. Use `git submodule`, a shared package, or direct copy of the relevant module — the key is one canonical source.
+
+| Pattern file | Which product repos use it |
+|-------------|---------------------------|
+| `security/auth_framework.py` | security-data-fabric, NullPointVector, incident-replay-tool, finops-cost-control-as-code |
+| `security/input_validator.py` | All services with user/device input |
+| `security/ai_era_security.py` | security-data-fabric (prompt injection, agent access control) |
+| `security/iac/cloudflare_terraform.tf` | Any Cloudflare-fronted service |
+| `api/service_template.py` | Any new FastAPI service |
+| `api/cloudflare_platform.py` | Any edge-deployed service |
+| `database/vector_search.py` | Any RAG system (Jarvis, opsmemory consumers) |
+| `cicd/ci-python.yml` | All Python repos |
+| `cicd/security-scan.yml` | All repos requiring weekly security gate |
+| `tools/opsmemory/` | Jarvis-AI-Assistant (as primary consumer), any agent needing persistent memory |
+
+---
+
+## Jarvis extraction (Phase 3)
+
+### Migration inventory
+
+| Item | Location in this repo | Destination | Status |
+|------|----------------------|-------------|--------|
+| MCP server | `tools/jarvis/mcp/` | `EPdacoder05/Jarvis-AI-Assistant/mcp/` | To migrate |
+| Vault (raw + wiki) | `tools/jarvis/vault/` | `EPdacoder05/Jarvis-AI-Assistant/vault/` | To migrate |
+| Slash commands | `tools/jarvis/.claude/commands/` | `EPdacoder05/Jarvis-AI-Assistant/.claude/commands/` | To migrate |
+| Agent prompt | `tools/jarvis/CLAUDE.md` | `EPdacoder05/Jarvis-AI-Assistant/CLAUDE.md` | To migrate |
+| Tests | `tools/jarvis/tests/` | `EPdacoder05/Jarvis-AI-Assistant/tests/` | To migrate |
+| opsmemory Jarvis integration | `tools/opsmemory/integrations/jarvis/` | Stays here as reusable pattern reference | Keep |
+| opsmemory Jarvis test | `tools/opsmemory/tests/test_jarvis_client.py` | Stays here as integration test for the pattern | Keep |
+
+### Migration steps (execute from Jarvis-AI-Assistant repo)
+
 ```bash
-# From System-Design-Engineering-Universal-Reference to NullPointVector
-cp -r security/ NullPointVector/
-cp SECURITY_PATTERNS.md NullPointVector/
-cp testing/test_ai_security.py NullPointVector/tests/
-cp examples/ai_security_integration.py NullPointVector/examples/
+# In EPdacoder05/Jarvis-AI-Assistant
+git remote add ref https://github.com/EPdacoder05/System-Design-Engineering-Universal-Reference.git
+git fetch ref
+
+# Copy Jarvis product files
+git checkout ref/main -- tools/jarvis/mcp
+git checkout ref/main -- tools/jarvis/vault
+git checkout ref/main -- tools/jarvis/.claude
+git checkout ref/main -- tools/jarvis/tests
+git checkout ref/main -- tools/jarvis/CLAUDE.md
+
+# Move to repo root structure
+git mv tools/jarvis/mcp mcp
+git mv tools/jarvis/vault vault
+git mv tools/jarvis/.claude .claude
+git mv tools/jarvis/tests tests
+git mv tools/jarvis/CLAUDE.md CLAUDE.md
+
+git commit -m "chore: import Jarvis product code from universal reference"
 ```
 
-#### Key Features to Enable
-- ✅ Input validation (all 32+ patterns)
-- ✅ ReDoS protection with thread-based timeout
-- ✅ Authentication framework
-- ✅ Rate limiting
-
-#### Implementation Code
-```python
-# In NullPointVector/security_scanner.py
-from security import (
-    detect_attack_patterns,
-    SafeRegexMatcher,
-    SecureValidator
-)
-
-# Scan target applications
-attacks = detect_attack_patterns(user_input)
-if attacks:
-    log_security_event(attacks)
-
-# Use safe regex for pattern matching
-matcher = SafeRegexMatcher(timeout=1.0)
-result = matcher.search(pattern, target_code)
-```
+After migration, delete product code from this repo and leave only `tools/jarvis/MIGRATION.md`.
 
 ---
 
-### 2. security-data-fabric
-**Repository:** https://github.com/EPdacoder05/security-data-fabric  
-**Type:** Data Security Platform  
-**Priority:** CRITICAL
+## ECC architecture reference
 
-#### Files to Copy
-```bash
-# Full security module
-cp -r security/ security-data-fabric/
-cp SECURITY_PATTERNS.md security-data-fabric/
-cp SECURITY_VALIDATION_REPORT.md security-data-fabric/
-cp testing/test_ai_security.py security-data-fabric/tests/
-```
+ECC (external corpus / cross-cutting) patterns that generalize to any backend/AI system:
 
-#### Key Features to Enable
-- ✅ All AI-era patterns (28-30)
-- ✅ Prompt injection detection
-- ✅ AI agent access control
-- ✅ Package hallucination protection
-- ✅ ReDoS protection
+### Patterns extracted to this repo
 
-#### Implementation Code
-```python
-# In security-data-fabric/ai_security.py
-from security import (
-    AISecurityValidator,
-    PromptInjectionDetector,
-    AgentAccessControl
-)
+| Pattern | File here | Original domain | Generalizes to |
+|---------|-----------|----------------|----------------|
+| Carrier identity normalization | `api/carrier_identity.py` | Insurance carrier lookup | Any entity-identity resolution with fuzzy matching and confidence tiers |
+| Part-type catalog | `database/catalog.py` | Parts inventory | Any DB-backed type registry with soft validation |
+| Medallion ETL | `patterns/medallion_architecture.py` | Data lake ingestion | Any Bronze→Silver→Gold data pipeline |
 
-# Initialize comprehensive security
-security = AISecurityValidator()
+### Patterns that stay in ECC product repo
 
-# Validate AI operations
-prompt_result = security.validate_user_prompt(llm_prompt)
-if not prompt_result.is_safe:
-    raise SecurityError(f"Prompt injection detected: {prompt_result.risk_score}")
-
-# Control agent access
-if not security.validate_agent_action(agent_id, "delete", resource):
-    raise PermissionError("Agent lacks permission")
-```
+- Carrier-specific business rules and scoring logic
+- Insurer ID tenant mapping tables
+- ECC-specific schema migrations
+- Product-specific audit trail consumers
 
 ---
 
-### 3. incident-replay-tool
-**Repository:** https://github.com/EPdacoder05/incident-replay-tool  
-**Type:** Incident Management  
-**Priority:** HIGH
+## Ownership rules
 
-#### Files to Copy
-```bash
-cp -r security/ incident-replay-tool/
-cp testing/test_ai_security.py incident-replay-tool/tests/
-```
+### This repo owns
 
-#### Key Features to Enable
-- ✅ Session security (fixation, hijacking protection)
-- ✅ RBAC enforcement
-- ✅ Audit logging
-- ✅ Input validation
+- Reusable pattern files (standalone, no product logic)
+- Architecture decision rubrics (`rubrics/`)
+- CI/CD template files (`cicd/`)
+- Security pattern references (`security/`)
+- API protocol references (`api/`)
+- Multi-agent RAG workflow map (`tools/opsmemory/`, `IMPLEMENTATION_SUMMARY.md`)
+- Engineering tradeoff analysis (`TRADEOFFS.md`)
 
-#### Implementation Code
-```python
-# In incident-replay-tool/security_config.py
-from security import (
-    auth_framework,
-    circuit_breaker,
-    SecureHasher
-)
+### Product repos own
 
-# Secure session management
-def create_secure_session(user_id):
-    session_id = secrets.token_urlsafe(32)
-    # Set HTTPOnly, Secure, SameSite flags
-    return session_id
+- Executable product logic (services, workers, pipelines)
+- Product-specific MCP servers and vault structures
+- Dashboards and deployment wiring
+- Product-specific CI configurations that extend the templates here
+- Secrets management and environment-specific config
 
-# Rate limiting for API
-breaker = CircuitBreaker(
-    failure_threshold=5,
-    recovery_timeout=60
-)
+### Decision rule
 
-@breaker.protect
-async def replay_incident(incident_id):
-    # Protected endpoint
-    pass
-```
+> If a file can be copy-pasted into any backend project without modification, it belongs here.  
+> If a file only makes sense in one specific product context, it belongs in that product repo.
 
 ---
 
-### 4. finops-cost-control-as-code
-**Repository:** https://github.com/EPdacoder05/finops-cost-control-as-code  
-**Type:** FinOps Automation  
-**Priority:** MEDIUM-HIGH
+## Adding a new pattern to this repo
 
-#### Files to Copy
-```bash
-cp -r security/ finops-cost-control-as-code/
-cp -r security/iac/ finops-cost-control-as-code/security/
-```
-
-#### Key Features to Enable
-- ✅ AI agent controls (for cost optimization decisions)
-- ✅ High-regret action approval
-- ✅ Prompt injection (if using LLMs)
-- ✅ IAC security validation
-
-#### Implementation Code
-```python
-# In finops-cost-control-as-code/cost_optimizer.py
-from security import AgentAccessControl, AgentIdentity, AgentPermission, AgentAction
-
-# Register cost optimization agent
-agent = AgentIdentity(
-    agent_id="cost-optimizer-001",
-    agent_name="CostOptimizer",
-    permissions={AgentPermission.READ, AgentPermission.WRITE},
-    scope=["billing", "resources"],
-    requires_human_approval=True  # Require approval for actions > $1000
-)
-
-control = AgentAccessControl()
-control.register_agent(agent)
-
-# Before expensive operations
-if estimated_cost > 1000:
-    approval_id = control.request_approval(
-        agent_id="cost-optimizer-001",
-        action=AgentAction.MODIFY_SCHEMA,  # Or custom action
-        resource=f"resource-group-{name}",
-        details={"estimated_cost": estimated_cost}
-    )
-    # Wait for human approval
-```
+1. Confirm it generalizes — usable in at least two different projects without modification
+2. Strip any product-specific terminology, credentials, or business logic
+3. Add an `Apply to:` docstring section explaining the use case
+4. Add a row to the ownership table above
+5. Update `README.md` TOC and section
+6. CI must pass: ruff + mypy + pytest
 
 ---
 
-### 5. popsmirror → iac-performance-testing-template
-**Repository:** https://github.com/EPdacoder05/popsmirror  
-**Type:** IAC Performance Testing  
-**Priority:** MEDIUM  
-**Action:** RENAME + ENHANCE
+## Security distribution model
 
-#### Step 1: Rename Repository
-```bash
-# Via GitHub UI or API
-New name: iac-performance-testing-template
-Description: Universal IAC template for performance testing environments across AWS, Azure, GCP
+Each product repo pulls security patterns from this repo. The canonical security baseline is:
+
+```
+security/input_validator.py     — input validation gate (32+ patterns)
+security/auth_framework.py      — identity and access
+security/ai_era_security.py     — AI-era attack surface (patterns 28-30)
+security/circuit_breaker.py     — resilience
+cicd/security-scan.yml          — weekly automated scan
 ```
 
-#### Step 2: Restructure
-```
-iac-performance-testing-template/
-├── templates/
-│   ├── aws/
-│   │   ├── terraform/
-│   │   ├── cloudformation/
-│   │   └── README.md
-│   ├── azure/
-│   │   ├── terraform/
-│   │   ├── arm/
-│   │   └── README.md
-│   ├── gcp/
-│   │   ├── terraform/
-│   │   ├── deployment-manager/
-│   │   └── README.md
-│   └── kubernetes/
-│       ├── manifests/
-│       └── helm/
-├── security/
-│   ├── __init__.py
-│   ├── iac/
-│   │   ├── multi_cloud_hardening.py
-│   │   └── __init__.py
-│   └── input_validator.py
-├── scripts/
-│   ├── deploy.sh
-│   └── validate_security.py
-├── tests/
-│   └── test_security.py
-└── README.md
-```
+Product repos add product-specific security config on top. They do not fork the base patterns — they import them.
 
-#### Step 3: Copy Security Files
-```bash
-cp -r security/ iac-performance-testing-template/
-cp SECURITY_VALIDATION_REPORT.md iac-performance-testing-template/
-```
-
-#### Step 4: Add Universal Deploy Script
-```python
-# scripts/deploy.py
-from security.iac import IACSecurityValidator, CloudProvider
-
-def validate_and_deploy(provider: str, config_path: str):
-    """Validate security before deployment"""
-    
-    # Load configuration
-    with open(config_path) as f:
-        config = load_config(f)
-    
-    # Validate security
-    validator = IACSecurityValidator(CloudProvider[provider.upper()])
-    violations = validator.validate_configuration(config)
-    
-    if violations:
-        print(validator.generate_compliance_report())
-        raise SecurityError("Security violations found - deployment blocked")
-    
-    # Deploy if safe
-    deploy_infrastructure(provider, config)
-```
-
----
-
-### 6. ha-iot-stack
-**Repository:** https://github.com/EPdacoder05/ha-iot-stack  
-**Type:** Home Automation IoT Stack  
-**Priority:** MEDIUM
-
-#### Files to Copy
-```bash
-cp security/input_validator.py ha-iot-stack/security/
-cp security/encryption.py ha-iot-stack/security/
-cp security/circuit_breaker.py ha-iot-stack/security/
-```
-
-#### Key Features to Enable
-- ✅ Input validation (IoT device data)
-- ✅ Encryption (TLS for device communication)
-- ✅ Rate limiting (prevent device flooding)
-- ✅ Circuit breaker (handle device failures)
-
-#### IoT-Specific Security Config
-```python
-# In ha-iot-stack/iot_security.py
-from security import detect_attack_patterns, CircuitBreaker
-
-IOT_SECURITY_CONFIG = {
-    'max_message_size': 1024,  # bytes
-    'rate_limit_per_device': 10,  # messages per second
-    'encryption': 'TLS 1.3',
-    'authentication': 'certificate-based',
-    'input_validation': True,
-}
-
-# Validate device messages
-def process_device_message(device_id, message):
-    # Size check
-    if len(message) > IOT_SECURITY_CONFIG['max_message_size']:
-        raise ValueError("Message too large")
-    
-    # Attack pattern detection
-    attacks = detect_attack_patterns(message)
-    if attacks:
-        log_security_event(device_id, attacks)
-        return
-    
-    # Process message
-    handle_message(device_id, message)
-
-# Circuit breaker for device communication
-device_breaker = CircuitBreaker(
-    failure_threshold=3,
-    recovery_timeout=30
-)
-
-@device_breaker.protect
-def communicate_with_device(device_id, command):
-    # Protected communication
-    pass
-```
-
----
-
-## 🔄 Deployment Workflow
-
-### Phase 1: Preparation (1 day)
-
-1. **Backup all repositories**
-   ```bash
-   for repo in NullPointVector security-data-fabric incident-replay-tool finops-cost-control-as-code popsmirror ha-iot-stack; do
-       gh repo clone EPdacoder05/$repo
-       cd $repo
-       git checkout -b security-hardening-2026
-       cd ..
-   done
-   ```
-
-2. **Create security branches**
-   ```bash
-   for repo in */; do
-       cd $repo
-       git checkout -b security-hardening
-       cd ..
-   done
-   ```
-
-### Phase 2: Deployment (2-3 days)
-
-Deploy security to each repo in priority order:
-
-**Day 1:**
-- ✅ security-data-fabric (CRITICAL)
-- ✅ NullPointVector (HIGH)
-
-**Day 2:**
-- ✅ incident-replay-tool (HIGH)
-- ✅ finops-cost-control-as-code (MEDIUM-HIGH)
-
-**Day 3:**
-- ✅ popsmirror → iac-performance-testing-template (MEDIUM + RENAME)
-- ✅ ha-iot-stack (MEDIUM)
-
-### Phase 3: Testing (1 day)
-
-For each repository:
-```bash
-cd repository-name
-python3 -m pytest tests/test_ai_security.py -v
-python3 -m pytest tests/ -v  # All tests
-```
-
-### Phase 4: Documentation (1 day)
-
-Update each repository's README with:
-- Security features enabled
-- How to use security modules
-- Links to SECURITY_PATTERNS.md
-
----
-
-## 📊 Success Metrics
-
-### Per Repository
-- ✅ All security tests passing
-- ✅ No critical vulnerabilities
-- ✅ Documentation updated
-- ✅ Team trained
-
-### Overall
-- ✅ 6 repositories hardened
-- ✅ 30+ attack patterns mitigated per repo
-- ✅ Consistent security across organization
-- ✅ IAC security baselines for all clouds
-
----
-
-## 🚨 Critical Actions
-
-### Immediate (Week 1)
-1. Deploy to security-data-fabric (CRITICAL)
-2. Deploy to NullPointVector (HIGH)
-3. Test ReDoS protection in production
-
-### Short-term (Week 2)
-1. Deploy to incident-replay-tool
-2. Deploy to finops-cost-control-as-code
-3. Rename and enhance popsmirror
-
-### Medium-term (Week 3-4)
-1. Deploy to ha-iot-stack
-2. Create organization-wide security dashboard
-3. Schedule security training
-
----
-
-## 📚 Resources
-
-### Documentation
-- **Main Security Docs:** `SECURITY_PATTERNS.md`
-- **Validation Report:** `SECURITY_VALIDATION_REPORT.md`
-- **Implementation Guide:** `IMPLEMENTATION_SUMMARY.md`
-
-### Code Examples
-- **Integration Example:** `examples/ai_security_integration.py`
-- **Tests:** `testing/test_ai_security.py`
-- **IAC Hardening:** `security/iac/multi_cloud_hardening.py`
-
-### Support Channels
-- **Security Issues:** GitHub Security Advisories
-- **Questions:** Repository Discussions
-- **Updates:** Watch this repository for security patches
-
----
-
-## ✅ Checklist
-
-### Pre-Deployment
-- [ ] Backup all repositories
-- [ ] Create security branches
-- [ ] Review current security posture
-- [ ] Identify critical vulnerabilities
-
-### Deployment
-- [ ] Deploy to security-data-fabric
-- [ ] Deploy to NullPointVector
-- [ ] Deploy to incident-replay-tool
-- [ ] Deploy to finops-cost-control-as-code
-- [ ] Rename and enhance popsmirror
-- [ ] Deploy to ha-iot-stack
-
-### Post-Deployment
-- [ ] Run all tests
-- [ ] Update documentation
-- [ ] Train team members
-- [ ] Set up monitoring
-- [ ] Schedule security reviews
-
----
-
-**Last Updated:** 2026-02-11  
-**Status:** READY FOR DEPLOYMENT  
-**Approval:** ✅ APPROVED
+**Last updated:** 2026-05-30  
+**Status:** Active — update when ownership changes
